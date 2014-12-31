@@ -1,0 +1,711 @@
+\documentclass{article} % For LaTeX2e
+% \usepackage{nips13submit_e,times}
+\usepackage{times}
+\usepackage{fullpage}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{natbib}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{verbatim}
+%\documentstyle[nips13submit_09,times,art10]{article} % For LaTeX 2.09
+
+
+\title{Training Deep Boltzmann Machines}
+
+
+\author{
+Mark Stoehr %% \thanks{ Use footnote for providing further information
+%% about author (webpage, alternative address)---\emph{not} for acknowledging
+%% funding agencies.}
+\\
+Department of Computer Science\\
+University of Chicago\\
+Chicago, IL 60637 \\
+\texttt{stoehr@cs.uchicago.edu} \\
+%% \And
+%% Coauthor \\
+%% Affiliation \\
+%% Address \\
+%% \texttt{email} \\
+%% \AND
+%% Coauthor \\
+%% Affiliation \\
+%% Address \\
+%% \texttt{email} \\
+%% \And
+%% Coauthor \\
+%% Affiliation \\
+%% Address \\
+%% \texttt{email} \\
+%% \And
+%% Coauthor \\
+%% Affiliation \\
+%% Address \\
+%% \texttt{email} \\
+%% (if needed)\\
+}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to break
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+\newcommand{\diag}{\mathop{\mathrm{diag}}}
+\newcommand{\sign}{\mathop{\mathrm{sign}}}
+%\newcommand{\diag}{\mathop{\mathrm{diag}}}
+%\nipsfinalcopy % Uncomment for camera-ready version
+
+\begin{document}
+
+
+\maketitle
+
+\begin{abstract}
+This short note describes the objective function and training strategy for Deep Boltzmann Machines (DBMs)
+and other models that I am working with in my current research project.
+\end{abstract}
+
+\section{Introduction}
+
+The Deep Boltzmann Machine (DBM) is an undirected graphical model that
+can be used to perform unsupervised deep learning. It is unique among deep learning approaches
+because it is a statistical model, can incorporate multiple modalities, and it incorporates both feed-forward
+and feed-back connections. The DBM is perhaps one of the most complicated
+entities studied in present machine learning research.  Previous work on the DBM has focused primarily on the
+range of domains to which the DBM may be applied and the impressive performance that can be obtained using a DBM
+as a tool for pattern recognition.  In this tutorial we describe the DBM as a computational entity and give
+a perspective on programming with DBMs.  Many of the ideas discussed herein should be applicable to other models as well.
+
+DBMs are specified by a collection of variables and an
+exponential-family likelihood function.  Since DBMs are in the
+exponential family they have a real-valued parameter vector (which are
+estimated during training) and a family of fixed feature functions
+called the sufficient statistics.  DBMs also belong to the family of
+deep learning methods: the variables may be partitioned into mutually
+exclusive groups called {\it layers} that roughly correspond to the
+layers in a multilayer perceptron. Even with this grouping and
+understanding the structure inference (i.e. predicting the label or
+the hidden state of the DBM for given input data) and training (estimating the parameters) are both intractable.
+
+Approximate inference is necessary and the mean-field approximation gives rise to an interesting inference algorithm
+which may be interpreted as a recurrent neural network.  The recurrence is over hidden layers and features a natural
+bidirectionality.  Other papers have sketched out how such a recurrent neural network may be trained using discriminative
+criteria (called multiprediction DBMs), and in this work we describe more of the algorithmic details and their
+mathematical derivation.  Building on this understanding we describe a novel bi-direction long term short term memory
+DBM whose mean-field approximation gives rise to an alternative LSTM.
+
+Additionally, the DBM may be trained in an unsupervised manner and we describe, programmatically, a persistant contrastive
+divergence (PCD) algorithm. Due to the successes obtained by deep learning in real-valued signal
+tasks such as speech recognition and machine vision this tutorial will
+develop a DBM that can perform classification on real-valued data and we will describe PCD specifically suited for that
+particular network.  We additionally describe the principles for a CUDA implementation
+that allows for faster computations.  The details of which have not been discussed elsewhere.  Other approaches are possible based on in-painting
+as in the MP-DBM and we relegate that to a future paper.
+
+In summary, the contributions of this work are
+\begin{enumerate}
+\item Algorithmic details and mathematical derivations for a DBM with Gaussian and soft-max visible layers
+\item MP-DBM training and inference algorithms
+\item Algorithmic details for the PCD training algorithm on CUDA
+\end{enumerate}
+
+
+This model features hidden binary layers which are latent, a visible
+Gaussian layer which is visible in both training and testing, and a
+soft-max layer which is visible during training and latent during
+testing.
+
+  Standard related
+to the deep belief network (DBN) developed by Hinton which has
+directed connections and can also be trained with unlabeled data.
+There are many differences between the DBM and the DBN but chief among
+them is that the DBM features top-down feedback cycles between layers
+whereas the DBN is a feedforward network.  Both the DBM and DBN were originally designed to work
+with binary data but have been extended to arbitrary exponential family distributions.  This tutorial
+is meant to expound on inference algorithms for multilayer Boltzmann machines composed with 
+exponential family generalizations which has been scattered through different areas of the literature
+and has not been given detailed derivations.
+
+This tutorial also gives the details for multiprediction style algorithms that enable the incorporation
+of backpropagation into DBM algorithms. We also consider an extension which uses recent ideas for training
+inspired by belief propagation.  The basic theory presented in this work is not new and the contribution of this
+tutorial is to hopefully more clearly explain the results that have been presented before. This tutorial is also meant
+to provide the basis for understanding the author's implementation of deepnet code that is used for performing the
+speech processing.
+
+This tutorial writeup is meant to provide a nearly comprehensive
+specification for a DBM programmatic implementation.  Accompanying this writeup is code representing
+all of the contained ideas. We focus on the
+multimodal DBM introduced in (Srivistava 2014) which has the advantage
+that we may train it with or without labels using essentially the same
+algorithms. The plan is to introduce the model specification and the
+data specification for input into the model.  We will then discuss the
+inference algorithm: i.e. given a trained network and some input data
+describe how to infer the labels or network hidden states for that
+data.  Then we will consider training algorithms.  We address
+persistant contrastive divergence as well as multiprediction training.
+
+The main inspiration for this article is the classic tutorial of Rabiner for Hidden Markov Models.  We intend to extend this tutorial to
+include sequence models as that is the ultimate intention of this work, but we have some room to go before getting there.
+
+\section{Notation}
+
+We introduce some notation to simplify the presentation. Let $[k]=\{0,1,\ldots,k-1\}$.  When indexing elements of a set we will
+typically use the set $[k]$ or zero-based indexing to keep with common programming conventions.
+We use bold-face to denote vectors
+where $\mathbf{v}\in\mathbb{R}^D$ has $D$ entries each belonging to the real field.  To refer to components of a vector 
+we drop the boldface and use a subscript so that $v_j$ is the $j$th entry of $\mathbf{v}$.  We will index different vectors
+with superscripts usually so that $\mathbf{v}^0$ and $\mathbf{v}^1$ refer to separate vectors. To refer to matrices we use typeface:
+e.g. $\mathtt{A}$. 
+
+The energy functions in DBMs make heavy use of inner products but we will follow the standard convention of writing inner products
+using summations.  This allows us to be very careful and particular about what is being summed over.
+
+\section{Formal Setting}
+
+The DBM in the fully observed setting is an exponential family model
+
+
+The DBM is a model composed of layers or vectors of variables:
+\begin{equation}
+\mathcal{L}=\left\{\mathbf{u}^{(0)},\mathbf{u}^{(1)},\ldots,\mathbf{u}^{(N)}\right\}.
+\end{equation}
+Each layer $\mathbf{u}^{(j)}$ belongs to a set $\mathbb{F}^{D_j}$ of some dimension $j$ and possesses
+a vector of parameters $\boldsymbol{\theta}^{(j)}$ which has dimensions $D_j$ and are often real-valued
+so $\boldsymbol{\theta}^{(j)}\in\mathbb{R}^{D_j}$.  The hidden layers are binary Boltzmann machines
+and the visible layers have exponential family conditional distributions.  The vector $\tilde{\mathbf{u}}^{(j)}$ will
+denote the vector of sufficient statistics for that layer and we treat those
+statistics as the observations.  In particular, the raw data may be a vector $\mathbf{u}^{(j,obs)}$ if $\mathbf{u}^{(j)}$
+is a visible layer and for each component $d$ we have
+$u^{(j)}_d=\phi_d^{(j)}(\tilde{u}^{(j)})$ for a fixed feature map $\phi_d^{(j)}$.
+
+DBMs also feature a layer-graph which specifies which layers are
+connected to which other layers.  These connections which we call
+layer edges are specified by a set $\mathcal{E}$.  For each edge
+$E\in\mathcal{E}$ is denoted by a pair of indices indicating the
+layers in $\mathcal{L}$ that are connected, e.g. $\mathbf{u}^{(i)}$
+and $\mathbf{u}^{(j)}$, as well as a parameter matrix,
+e.g. $\mathtt{W}\in \mathbb{R}^{F_i\times F_j}$.  Note that the
+dimension of the edge parameter matrix is the product of the
+dimensions of the connected layers which allows us to write the energy function as due to the structure of the energy
+function defining the Gibbs distribution of the DBM.
+
+Having specified the layers and their edges the energy function is written
+\begin{equation}
+E(\mathbf{u}; \boldsymbol{\theta},W)= -\sum_{n=1}^N (\boldsymbol{\theta}^{(n)})^\top\tilde{\mathbf{u}}^{(n)} 
+- \sum_{(i,j)\in\mathcal{E}} (\mathbf{u}^{(i)})^\top W^{(i,j)}\mathbf{u}^{(j)}.
+\end{equation}
+The likelihood for a given configuration of the variables is
+\begin{equation}
+\mathbb{P}(\mathbf{u}; \boldsymbol{\theta},W) = \exp(-E(\mathbf{u};\boldsymbol{\theta},W))/\mathcal{Z}(\boldsymbol{\theta},W)
+\end{equation}
+where 
+\begin{equation}
+\mathcal{Z}(\boldsymbol{\theta},W)=\sum_{\mathbf{u}} \exp(-E(\mathbf{u};\boldsymbol{\theta},W))
+\end{equation}
+is the partition function which normalizes the distribution.
+The edge structure of a DBM is constrained to be an undirected tree.  The visible layers are always at leaf nodes
+of the DBM layer tree.  By convention we call the visible layers the {\it bottom layers} and the height of a given
+layer is the distance to the closest visible layer which is unique and easy to compute over a tree.
+
+
+
+\subsection{A simple Binary network}
+
+In a simple binary network we have a visible binary layer $\mathbf{v}\in\{0,1\}^{D_0}$ and a hidden binary layer
+$\mathbf{h}\in\{0,1\}^{D_1}$ with energy function
+\begin{equation}
+E(\mathbf{v},\mathbf{u};\boldsymbol{\theta},W) = -\mathbf{v}^\top \boldsymbol{\theta}_v - \mathbf{u}^\top \boldsymbol{\theta}_u - \mathbf{v}^\top W \mathbf{u}.
+\end{equation}
+
+\subsection{The Gaussian-Categorical Network}
+
+Another interesting case are DBMs with a Gaussian visible layer and a categorical visible layer.  Such DBMs may be used in classication or as an emission distribution of an HMM. Let $\mathbf{v}_0$ denote the input Gaussian variables, $\mathbf{v}_1$ denote the visible categorical
+layer, and $\mathbf{h}=(\mathbf{h}_0,\mathbf{h}_1,\mathbf{h}_2)$ the hidden binary layers.  We write the energy function as
+\begin{align}
+E(\mathbf{v},\mathbf{h}) =& \phi(\mathbf{v}^{(0)})^\top\boldsymbol{\theta}^{(0)} \notag\\
+& - (\mathbf{v}^{(0)})^\top W^{(0)} \mathbf{h}^{(0)} - \sum_{i=0,1} (\mathbf{h}^{(i)})^\top W^{(i+1)} \mathbf{h}^{(i+1)}\notag\\
+& - (\mathbf{h}^{(2)})^\top W^{(3)} \mathbf{v}^{(1)} - (\mathbf{v}^{(0)})^\top \boldsymbol{\theta}^{(1)}
+\end{align}
+
+
+
+Each layer is either observed or it is latent
+so our specification includes a set of visible layers
+\begin{equation}
+\mathcal{L}_v=\left\{\mathbf{v}^{(0)},\mathbf{v}^{(1)},\ldots,\mathbf{v}^{\left(N_v\right)}\right\}
+\end{equation}
+where $N_v$ is the number of visible layers (typically two: one for the inputs and one for the labels).  Each $\mathbf{v}^{(j)}$ for
+$1\leq j\leq N_v$ is a vector over some set $\mathbb{F}$ (typically $[2]$, $[k]$ for some $k$, or $\mathbb{R}$) of dimension
+$D^{v}_j$ so that $\mathbf{v}^{(j)}\in \mathbb{F}^{D^v_j}$. So the specification of the model must give the dimension or number of variables
+in each layer.  Each layer $\mathbf{v}$ will also have a vector of parameters s  
+
+  By convention we will associate visible layers
+
+
+
+ It is an example of an undirected graphical model and hence models top-down feedback connections
+from higher layers to lower layers.  A multimodal DBM is constructed from a set of visible layers which may have Gaussian or categorical
+marginal distributions and a set of hidden layers where each hidden layer is a vector of binary variables.  Many papers have been written
+about different data sets that can be used and the inference algorithms have been discussed with algorithms presented at a high level.
+In this paper we describe all the details for working with the DBM.  The first topic is to describe inference in the DBM which forms
+the basis for the two algorithms we discuss: persistant contrastive divergence and multiprediction training.
+
+We follow the standard recipe for approximate mean-field inference where we infer a distribution over the states of unobserved nodes
+using a factorial distribution.  The main contribution of this section is an explicit and programmatic method to perform inference.
+The mean-field inference derivation will work out all of the details.  We use a derivation closely related to work 
+based on the replicated
+soft-max model.
+
+\section{Approximate Inference}
+
+The joint probability distribution over the hidden variables $\mathbf{h}$, over the Gaussian nodes $\mathbf{v}_1$,
+and the categorical node $\mathbf{v}_2$ is given using an energy-based function:
+\begin{equation}
+\mathbb{P}(\mathbf{h},\mathbf{v}_1,\mathbf{v}_2) = \exp(-E(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h});\boldsymbol{\psi})/\mathcal{Z}(\boldsymbol{\psi}).
+\end{equation}
+Inference is the task of inferring unobserved variables based on the observed variables. One approach is to pick variables that will
+maximize the joint likelihood.  We take a different approach using Jensen's inequality and infer factorial distribution that approximates
+the conditional distribution of the hidden variables conditioned on the observed variables.
+In particular we seek
+\begin{align}
+\log \sum_{\mathbf{h},\mathbf{v}_2} \mathbb{P}(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h}) =& \log \sum_{\mathbf{h},\mathbf{v}_2} Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1) \frac{\mathbb{P}(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h})}{Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1)}\\
+\geq& \sum_{\mathbf{h},\mathbf{v}_2} Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1) \log \frac{\mathbb{P}(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h})}{Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1)}
+\end{align}
+where the inequality is tight in the case where $Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1)=\mathbb{P}(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1)$, so we solve the approximate problem
+\begin{equation}
+\max_{Q\in\mathcal{F}}\sum_{\mathbf{h},\mathbf{v}_2} Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1) \log \frac{\mathbb{P}(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h})}{Q(\mathbf{v}_2,\mathbf{h}\mid\mathbf{v}_1)}
+\end{equation}
+where $\mathcal{F}$ is the set of factorial distributions. This variational problem is the basis for our approximate inference approach.
+This variational problem in the context of a DBM leads to fixed point equations called {\it mean-field inference}.  Inference for
+categorical variables uses a soft-max function and inference for the hidden binary layers uses a logistic sigmoid.  We do not perform
+mean-field inference for the Gaussian variables since they are observed.  Mean-field inference is the process by which we can obtain
+predictions in our model.
+
+The update equations are
+\begin{align}
+\tau_j \leftarrow \frac{1}{2}
+\end{align}
+
+
+
+Deriving those relationships is of independent interest because it may be seen as performing in-painting.  We want to develop that idea
+further because the in-painting may give a sense of which units are accurately modeling the observed data. We want to have an importance
+calculated for all of the variables.
+
+\section{Formal Setting}
+
+The DBM is an undirected graphical model with visible nodes $\mathcal{V}$, hidden nodes $\mathcal{H}$, and edge set
+$\mathcal{E}$.  Each of the sets of nodes are divided up into layers: $\mathcal{V}=\mathcal{V}_1\sqcup\cdots\sqcup\mathcal{V}_{N_v}$
+and $\mathcal{H}=\mathcal{H}_1\sqcup\cdot\sqcup\mathcal{H}_{N_h}$. We define an induced layer graph over the layers where two
+layers are said to be adjacent if there is an edge connecting a node in one layer and a node in the other. The layer graph 
+in a DBM is an undirected tree and the induced subgraph over two adjacent layers $\mathcal{U},\mathcal{U}'$ is a complete
+bipartite graph with parts $\mathcal{U}$ and $\mathcal{U}'$. The probability distribution is defined by a Gibbs distribution
+with energy function
+\begin{equation}
+E(\mathbf{v},\mathbf{h}; W) = \mathbf{v}^\top W_0 \mathbf{h}_1 +\sum_{i=1}^{N_h-1} \mathbf{h}_i^\top W_i \mathbf{h}_{i+1}
+\end{equation}  
+in the case of a DBM with a single layer of visible nodes and a chain layer graph. The probability distribution over a given
+node configuration of the visible nodes is
+%% \begin{equation}
+%% \mathbb{P}(\mathbf{v}) = \frac{1}{\mathcal{Z}(W)}\sum_{\mathbf{h}}\exp\left(-E(\mathbf{v},\mathbf{h};W)).
+%% \end{equation} 
+
+A multimodal DBM has a more complex layer graph structure than a tree.  Each visible layer and sometimes the top hidden layer
+are the leaf nodes in the undirected layer tree.  We denote the layer graph tree structure by $\mathcal{E}_L$, 
+
+In the basic case all the variables are binary and the
+energy 
+
+ Traditionally, a DBM has a single visible layer $\mathcal{V}_1$
+with several hidden layers $\mathcal{H}_1,\ldots,\mathcal{H}_{N_h}$ stacked on top. The subgraph over $\mathcal{V}$ and $\mathcal{H}_1$ 
+is a complete bipartite
+graph with parts $\mathcal{V}$ and $\mathcal{H}_1$ and the.   The graph structure is defined by an undirected tree over layers. Viewing
+the layers as nodes 
+
+We are working in the general setting of multimodal DBMs so the layers are organized in a tree structure where each layer
+has a unique parent layer although a given layer may have multiple child layers.  We represent each layer as a vector of variables
+with the observed layers denoted as $\mathbf{v}_1,\mathbf{v}_2$ (since we will
+at most have two modalities) and the hidden layers as $\mathbf{h}_1,\mathbf{h}_2,\ldots$.  The hidden layers are all binary variables
+so that $\mathbf{h}_l\in \{0,1\}^{F_l}$ for $1\leq l\leq K_h$ and the observed layers can be Gaussian, categorical distributions, binary,
+or any other type of vector depending on the type of unit. Each observed layer has a complete bipartite connection to a hidden layer
+and each hidden layer has complete bipartite connections to any layers below it and a complete bipartite connection to a layer above it.
+Thus we may represent the DBM using a graph over the layers where there is a directed edge $\mathcal{E}(\mathbf{u},\mathbf{u}')$
+going from a layer $\mathbf{u}$ to its parent layer $\mathbf{u}'$.  Due to the undirected nature of the graph this directed formalism
+is merely a topological ordering imposed on the tree-structure over the parts of the graph since a DBM is a $K_h+K_o$-partite graph
+where each part only has connections to the neighboring parts and there are no cycles among part connections.
+
+With this formalism we may write the energy function of the distribution in a novel manner:
+\begin{equation}
+E(\mathbf{v},\mathbf{h};\boldsymbol{\psi}) = \sum_{i=1}^{K_o} E_{o,i}(\mathbf{v}_i) + \sum_{(j,l)\in\mathcal{E}} \mathbf{u}^\top_j W_{j,l}\mathbf{u}_l + \sum_l \mathbf{b}_l
+\end{equation}
+where $\boldsymbol{\psi}=\{ W_{j,l} \}_{(j,l)\in\mathcal{E}} \cup \{ \mathbf{b}_l \}_{l\in\mathcal{V}}$ represents the connection weights and biases
+of each layer, the functions $E_{o,i}$ represents the specific energy to observed unit $i$ (i.e. Gaussian, soft-max, replicated soft-max, rectified-linear, etc.).  The probability distribution over a given configuration of the units is given by the Gibbs distribution
+\begin{equation}
+\mathbb{P}(\mathbf{v},\mathbf{h};\boldsymbol{\psi}) = \frac{1}{\mathcal{Z}(\boldsymbol{\psi})e^{-E(\mathbf{v},\mathbf{h};\boldsymbol{\psi})}}
+\end{equation}
+where
+\begin{equation}
+\mathcal{Z}(\boldsymbol{\psi}) = \int_{\mathbf{v}}\sum_{\mathbf{h}} e^{-E(\mathbf{v},\mathbf{h};\boldsymbol{\psi})}\;d\mathbf{v}
+\end{equation}
+where the measure $d\mathbf{v}$ is not necessarily continuous with respect to the Lebesgue measure so that we can represent
+instances where visible layers are discrete via the integral.
+
+\section{Approximate Inference}
+
+
+
+Exact inference over the hidden variables $\mathbf{h}$
+conditioned on the visible variables $\mathbf{v}$ in the multimodal DBM is computionally hard so we use approximate inference. Given any distribution $Q(\mathbf{h}\mid\mathbf{v};\boldsymbol{\mu})$ with parameter vector $\boldsymbol{\mu}$
+that approximates the true posterior $P(\mathbf{h}\mid\mathbf{v};\boldsymbol{\theta})$ we can compute a variational lower bound
+\begin{align}
+  \log P(\mathbf{v};\boldsymbol{\theta}) &\geq \sum_{\mathbf{h}}Q(\mathbf{h}\mid \mathbf{v};\boldsymbol{\mu})\log P(\mathbf{v},\mathbf{h};\boldsymbol{\theta}) + \mathcal{H}(Q) \notag\\
+ &\geq \log P(\mathbf{v};\boldsymbol{\theta}) - \operatorname{KL}(Q(\mathbf{h}\mid \mathbf{v};\boldsymbol{\mu})\| P(\mathbf{h}\mid \mathbf{v};\boldsymbol{\theta})).
+\end{align}
+Inference is performed by maximizing
+\begin{equation}
+\max_Q \sum_{\mathbf{h}}Q(\mathbf{h}\mid \mathbf{v};\boldsymbol{\mu})\log P(\mathbf{v},\mathbf{h};\boldsymbol{\theta}) + \mathcal{H}(Q),
+\end{equation}
+the lower-bound.  To make the maximization tractable we use a factorial distribution $Q$ where 
+\begin{equation}
+Q(\mathbf{h}\mid \mathbf{v};\boldsymbol{\mu}) = \prod_{l=1}^{N_h}\prod_{j=1}^{N_l}q(h_j^{(l)}=1\mid \mathbf{v}) = \prod_{l=1}^{N_h}\prod_{j=1}^{N_l}\mu_j^{(l)}
+\end{equation}
+which will yield fixed-points for inference.
+
+We are most interested in the case where we have a soft-max visible
+layer for the layers and a Gaussian input layer.  We have two separate
+instances of inference: the first is the case where the actual
+posteriors are observed so we are jointly modeling the inputs and the
+outputs.  The second case is where the soft-max layer is hidden but we
+still observe the Gaussian visible layer $\mathbf{v}_1$ and we wish to predict the
+soft-max layer $\mathbf{v}_2$.  We will consider the two problems
+separately.
+
+In the case where we observe both the soft-max layer and the Gaussian layer we have a log joint probability distribution:
+\begin{align}
+\log P(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h};\boldsymbol{\theta}) =& \left(\mathbf{v}^{(1)}\right)^\top \diag(\sigma^{-2})/2 \mathbf{v}^{(1)} - \left(\mathbf{v}^{(1)}\right)^\top W^{(1)} \mathbf{h}^{(1)} \notag\\
+&  - \left(\mathbf{v}^{(2)}\right)^\top W \mathbf{h}^{(2)} - \mathbf{h}^{(2)} W^{(2,3)}\mathbf{h}^{(3)}\notag\\
+& - \left(\mathbf{h}^{(1)} \right)^\top W^{(1,3)} \mathbf{h}^{(3)}.
+\end{align}
+To compute the cross entropy between the factorial distribution and the joint using a probability for the factorial distribution
+over $\mathbf{v}_2$ (the soft-max layer) where
+\begin{equation}
+Q(\mathbf{v}^{(2)}_j = 1\mid \mathbf{v}^{(1)};\boldsymbol{\mu}) = \boldsymbol{\mu}^{(v,2)}_j
+\end{equation}
+where 
+\begin{equation}
+\sum_j \boldsymbol{\mu}^{(v,2)}_j = 1.
+\end{equation}
+The entropy of the soft-max layer is
+\begin{equation}
+\sum_j \frac{\boldsymbol{\mu}^{(v,2)}_j}{\sum_{j'}\boldsymbol{\mu}^{(v,2)}_{j'}} \log \frac{\boldsymbol{\mu}^{(v,2)}_j}{\sum_{j'}\boldsymbol{\mu}^{(v,2)}_{j'}}
+\end{equation}
+then we call
+\begin{align}
+\sum_{\mathbf{h}} Q(\mathbf{h}\mid \mathbf{v};\boldsymbol{\mu})\log P(\mathbf{v}_1,\mathbf{v}_2,\mathbf{h};\boldsymbol{\theta}) =&
+\end{align}
+
+\subsection{Softmax Unit Inference}
+
+
+
+
+\section{Approximating the objective}
+
+The training objective is to maximize the likelihood over the observed data.  Which we write as
+\begin{align}
+\mathcal{L}(\boldsymbol{\psi};\mathbf{v}) = \log \sum_{\mathbf{h}} \mathbf{P}(\mathbf{v},\mathbf{h};\boldsymbol{\psi})
+\end{align}
+
+
+\section{MNIST Experiment}
+
+To run this experiment we first construct a number of objects:
+We have
+\begin{verbatim}
+model, train_op, eval_op = LoadExperiment(sys.argv[1], sys.argv[2],
+                                          sys.argv[3])
+\end{verbatim}
+where \texttt{model} is of type \texttt{deepnet\_pb2.Model}, \texttt{train\_op} and
+\texttt{eval\_op} is of type \texttt{deepnet\_pb2.Operation}.  We then call
+a constructor \texttt{dbm.DBM} on \texttt{model}, \texttt{train\_op}, and \texttt{eval\_op}.
+
+So the initialization just sets up the objects.  The protobuff objects were generated automatically,
+I'm not entirely sure how that works (that's a comment at the top of the file).
+
+\subsection{Train}
+
+Those parameters are used to create an instance of \texttt{dbm.DBM} denoted by \texttt{model}
+and then we call \texttt{model.Train()} which calls \texttt{model.SetUpTrainer()}.  The first expression
+evaluated in \texttt{SetUpTrainer} is a method \texttt{LoadModelOnGPU}.
+
+In \texttt{LoadModeOnGPU} we then run through all the layers and copy hyperparameters from the \texttt{model.pbtxt}
+training file into the layer.  After doing that processing we then append the layer
+to a list of layers \texttt{dbm.DBM.layer} which then creates an object subclassed from \texttt{layer.Layer}.
+The \texttt{layer.Layer} subclass contains many useful pieces of code that indicate various parameters of that layer.
+A logical thing would be to make it so that the several layers would have parameters that match the 
+
+\section{Modifying the MNIST experiment}
+
+The setup for the experiment is very similar between the MNIST experiment and the African languages
+experiment. Additionally the setup is very similar to the Fisher experiment I considered when testing 
+the pylearn2 implementation.  When running the African languages experiment I will need to modify the 
+data handling objects in \texttt{deepnet} since they presently cannot handle large datasets.
+When running the Fisher experiment I will be able to just modify the \texttt{proto} files
+without changing too much about the network probably. Thus, I am first going to run a version of the 
+Fisher experiment and then do the modifications for the African languages experiment.
+
+\subsection{Fisher Experiment}
+
+To run this experiment we first need to create a dataset similar to the mnist dataset but with the fisher data.
+I just altered the size of the network and such and it appears that I was able to get a very low number.
+One question is whether I can get the posteriors out from the network easily and whether I can get features
+easily out once I have used a learned network.  That is criticial for running things
+
+\subsection{Adapting the Data Input}
+
+My strategy for figuring out where the data is loaded in is to follow the path of execution
+and try to start writing the code to get the data processed properly.  \texttt{neuralnet.NeuralNet.SetUpTrainer}
+is a method called by \texttt{neuralnet.NeuralNet.Train} (both of these are in the \texttt{deepnet} module). Many of the
+attributes of \texttt{neuralnet.NeuralNet} are defined by the \texttt{eval.pbtxt} and \texttt{train.pbtxt} 
+protobuffer files.  After loading in the model using \texttt{neuralnet.NeuralNet.LoadModelOnGPU}
+we then run \texttt{neuralnet.NeuralNet.SetUpData}.
+
+Within that function the first step is to keep track of the data names and to get the data handles
+for the training, validation, and testing datasets using the training \texttt{deepnet\_pb2.Operation} object
+that is often referred to by \texttt{t\_op} and is the \texttt{neuralnet.NeuralNet.t\_op} attribute of the
+neural network class.  We then use the function \texttt{GetDataHandles} that returns a list of 
+data handles for \texttt{self.train\_data\_handler}, \texttt{self.validation\_data\_handler},
+\texttt{self.test\_data\_handler}.
+
+During the run of \texttt{GetDataHandles} we then call the \texttt{datahandler.DataHandler} constructor
+over the pairs of input layer data names:
+\begin{verbatim}
+[[u'train_data', u'train_labels'], [u'validation_data', u'validation_labels'], [u'test_data', u'test_labels']].
+\end{verbatim}
+Then three \texttt{datahandler} objects are created:
+\begin{enumerate}
+\item \texttt{datahandler.Disk}
+\item \texttt{datahandler.Cache}
+\item \texttt{datahandler.GPUCache}
+\end{enumerate}
+we will go over each of these and address what they do. \texttt{datahandler.Disk} looks like it handles the 
+IO from the disk.  Essentially these three classes represent the memory hierarchy between Disk, CPU,
+and GPU.  We want to grab data from the disk in chunks (thus allowing us to use hdf5).  Thus we can simply add
+into the \texttt{datahandler.Disk.ReadDiskData} method and extend it to handle \texttt{hdf5} datasets
+so that we can work with the larger dataset.  The change should allow one to basically loop through the whole
+dataset and grab chunks of it at a time.  When you get to the end you should loop back around.  All of that logic
+can probably just be handled by the \texttt{datahandler.Disk} class logic itself and does not need to affect the other
+classes.
+
+It appears that as a part of the implementation we can use multiple files using wild cards \texttt{*} since the filenames to the
+data are resolved with \texttt{glob.glob}.  To see whether I can get this to work I will split the fisher data up into 4 files
+one with 30 examples, the next with 30, the third with 30 and the final with 10.  I will be curious whether the \texttt{datahandler.Cache}
+is the same no matter how many files I have. So before I do this, I first run a \texttt{pdb.set\_trace()} statement within
+\texttt{datahandler.Cache.LoadData} and see that the data has been loaded into the cache when there is  only a single file. 
+The next thing to check is what happens when I split the data into multiple files.
+
+After running the check on the Fisher I see that multiple files works just fine.
+
+\subsection{Handling Posteriors as Input}
+
+The next challenge is to get the network to accept posteriors as input since the MNIST network expects plain labels. I'm going to
+look in the code for files that could handle a categorical distribution input and see whether that could work.  One thing
+to check is the original paper and to check the experiments that were run for the multimodal dbn.
+
+After running it seems there is an implementation of a softmax layer but it is accustomed to getting labels as input.  Thus,
+this section of the writeup will be spent understanding exactly how to get the soft-max computations to work with posteriors
+as input. I'm going to have to work somewhat with the CUDA materials to be able to get this to happen.
+
+\section{Deepnet Data Flow}
+
+To understand the algorithm working in deepnet we go over the inner workings of the algorithm.  One of the main purposes is
+to understand the actual training objectives and what the gradients computed are.  I want to be able to match up everything that
+is happening in the code to what is happening in the paper.  To do this I will very carefully run through all the code that gets
+executed.
+
+\subsection{Initialization}
+
+The first method called is \texttt{dbm.DBM.\_\_init\_\_} which calls the inherited initialization method
+\texttt{neuralnet.NeuralNet.\_\_init\_\_}.  The main things that happen here are the initialization to of all the attributes that define the
+network to null values.  Of greatest interest are
+\begin{verbatim}
+self.data = None
+self.edge = []
+self.layer = []
+\end{verbatim}
+the network parameters are stored in \texttt{neuralnet.NeuralNet.net}.  The initialization does not do much more than this.
+It also sets the parameters for the evaluation and training operations to \texttt{model.t\_op} and
+\texttt{model.e\_op}, respectively.
+
+\subsection{Loading Model Parameters on to the GPU}
+
+The next step is to load the models onto the GPU and set the basic model parameters
+\texttt{model.edge} and \texttt{model.layer}.  The first step is to get the batchsize set. Normally this is inferred from the 
+parameters in \texttt{model.t\_op} where that was set to be from the \texttt{train.pbtxt} file. The next step is to populate
+the layers of the network in \texttt{model.layer} using \texttt{util.CreateLayer} (one point of confusion often occurring while
+working with this code is that function names are often in camel text so that you don't always know whether something is a constructor
+or not). The hyperparameters from \texttt{model.net.hyperparams} are then copied over to \texttt{layer.hyperparams} using 
+the \texttt{MergeFrom} method.  This is an important step as those hyperparameters are the ones set in the model \texttt{.pbtxt}
+file that was loaded into the \texttt{trainer.py} script.
+
+The ultimate output of \texttt{dbm.DBM.LoadModelOnGPU()} creates \texttt{dbm.DBM.edge} which contains the parameter matrices
+and \texttt{dbm.DBM.layer} which houses the internal states of nodes (either a hidden state or the input data). And this gets us the
+defining characteristics of the DBM implementation included in the code.  These are initialized randomly.
+
+Another critical thing in the model is the topological information revealed by the edge structure which organizes
+the computation strategy given by the network.  In the case of DBMs we use the \texttt{dbm.DBM.Sort} method which organizes
+the nodes in the order that we treat them during data processing.
+
+\subsection{Loading Data Into Program}
+
+Once the model has been setup the next step is to set up the data which primarily uses tools from \texttt{datahandler.py}.
+That file has three classes that are of interest.  The \texttt{dbm.DBM} class has a method \texttt{dbm.DBM.SetUpData} which
+basically just calls the inherited method \texttt{neuralnet.NeuralNet.SetUpData} unless \texttt{dbm.DBM.initializer\_net} is not
+\texttt{None}.  First the program extracts the layers with input and output, gets the data handles according to the data
+script as well as the hyperparameters that were set for those layers.
+
+The function \texttt{datahandler.GetDataHandles} is then called and produces three \texttt{datahandler.DataHandler} instances
+one for the training data, one for the validation data, and one for the testing data.  Eaach of the \texttt{datahandler.DataHandler}
+instances has three objects for managing the memory hierarchy:
+\begin{enumerate}
+\item \texttt{datahandler.DataHandler.disk} which is an instance of \texttt{datahandler.Disk} and handles loading in data stored on disk. Really the only method that needs to be implemented for this object is \texttt{datahandler.Disk.Get} which loads in data.  The object uses
+private methods (private by convention) to actually handle the loading.
+\item \texttt{datahandler.DataHandler.cache} which is an instance of \texttt{Cache} which holds a smaller set of data in the CPU.
+\item \texttt{datahandler.dataHandler.gpu\_cache} which is an instance of \texttt{GPUCache} which manages the data that is actually loaded
+onto the GPU device.
+\end{enumerate}
+The data itself is refered to via handles and in the case of the MNIST data and in the African data experiments for each of
+training, validation, and testing we have a handle for the continuous input data and a handle for the label posteriors data.
+
+\subsection{Loop parameter settings}
+
+The rest of the training setup involves assigning values to the model objects which indicate stopping conditions for training, how often
+we should evaluate the error rates, how often the model should be saved, and what criteria should be used to select the best model
+via the validation criterion performance.
+
+\subsection{The Training loop}
+
+The training loop was written simply with the following steps:
+\begin{enumerate}
+\item Load in the training data \texttt{self.GetTrainBatch}
+\item Compute the losses and do the update \texttt{self.TrainOnebatch}
+\item Run an \texttt{Accumulate(acc,loss)} where \texttt{loss} is the current minibatch losses, and \texttt{acc} is the accumulated losses across several minibatches.
+\end{enumerate}
+
+\texttt{GetTrainBatch} just calls \texttt{GetBatch} but with the appropriate handle for the training data (stored in \texttt{model.train\_data\_handler}--there are also similar methods that work analogously: \texttt{GetValidationBatch}, \texttt{GetTestBatch}).  This function
+calls the \texttt{handler.Get} method that retrieves a reference the \texttt{CUDAMatrix} object represented a mini-batch of data
+on the GPU and sets the states of the network layers in \texttt{dbm.DBM.datalayer} to those matrices.  The \texttt{dbm.DBM.train\_data\_handler}
+was setup in the \texttt{SetUpData} section.  The \texttt{db.DBM.trin\_data\_handler.Get} method simply calls the \texttt{datahandler.GPUCache.Get} method which gets a matrix from the GPU.  Getting the matrix of batch data from the GPU works via lazy-loading: if the GPU does not
+have the next mini-batch loaded then that call to the \texttt{Get} method will cause the GPU to grab the batch for the \texttt{Cache} which
+models the CPU data, and if the CPU cache does not have the data then a \texttt{Get} method is called for the \texttt{dbm.DBM.train\_data\_handler.disk} instance and more data is loaded from the disk.  The \texttt{SetData} method called by the layers stored in the 
+\texttt{dbm.DBM.datalayer} list simple pass a name (because Python) to the \texttt{layer.data} attribute for the data layers so that
+methods within the layer can now work with the \texttt{CUDAMatrix} instance containing the current mini-batch of data used by the algorithm.
+
+Once all of that data loading has been taken care of the next step is \texttt{dbm.DBM.TrainOneBatch} which takes the \texttt{dbm.DBM}
+and the current step number as arguments.  This is the heart of the training algorithm and we explain what is happening there
+in the next section.
+
+\subsection{Training Step}
+
+The training algorithm employed is Persistant Contrastive Divergence.  The complete method in the \texttt{dbm.DBM} class is
+\begin{verbatim}
+  def TrainOneBatch(self, step):
+    losses1 = self.PositivePhase(train=True, step=step)
+    if step == 0 and self.t_op.optimizer == deepnet_pb2.Operation.PCD:
+      self.InitializeNegPhase(to_pos=True)
+    losses2 = self.NegativePhase(step, train=True)
+    losses1.extend(losses2)
+    return losses1
+\end{verbatim}
+
+There is a special initialization step that we consider in the case where you are on the first step.  The first part of the algorithm
+is the same from step to step, however.  This is the positive phase.
+
+\subsubsection{DBM PCD Positive Phase}
+
+If there is an initializer net then we do a forward propagation with
+that (will return to the initializer net later to see if it has
+anything to do with pretraining and the like.  The first part of the
+positive phase is to initialize each of the layers.  In the code the
+layer is written as \texttt{dbm.DBM.node\_list} which is the same in
+the case of the DBM being considered, the \texttt{node\_list} contains
+the topologically sorted layers for inference purposes. 
+
+For the data layer nodes we call the \texttt{dbm.DBM.ComputeUp} method
+which will simply get the data and set the state of the input data layers
+to the data matrix (a \texttt{cudamat.CUDAMatrix}).  The rest of the states
+are all going to be set to zero.
+
+The next step of the computation is mean-field inference
+and we run the number of steps as given by the hyperparameters in the model
+\texttt{pbtxt} file (protocol buffer config file).  The \texttt{dbm.DBM.Sort}
+method was called earlier and it organizes the layers based on the order they are processed. In the case of
+the network given in this writeup there are five layers with two data layers and only the two non data layers
+will have mean-field inference run so those three layers are then run.  The mean-field inference is run the usual way:
+each layer updates its state by taking the inner product between the edge weights and the state of the neighbour layer,
+adds them together, adds the bias, and then takes the sigmoid of that matrix and stores that as the state for the layer.  
+A little bit more is done afterwards in the case where dropout rules are in place.
+
+The last step is to collect the sufficient statistics into a
+\texttt{cudamat.CUDAMatrix} instance in \texttt{layer.suff\_stats}.
+The sufficient statistics will be used in the negative phase. For
+layers the sufficient statistics are computed by summing over the data
+dimension of the state (since the state is dimensionality on the
+zeroeth axis and mini-batch size on the first axis).  The sufficient
+statistics for edges are the dot product between the state matrices
+between the two layers that the edge joins.
+
+\subsubsection{DBM PCD Negative Phase}
+
+The first step is to set the \texttt{layer.state} and \texttt{layer.sample}
+to \texttt{layer.neg\_state} and \texttt{layer.neg\_sample} since each layer carries around a positive and negative version.
+The numer of Gibbs sampling steps is then set to the value of the hyperparameters from the protocol buffer model file.
+\texttt{dbm.DBM.ComputeUp} is then run on the layers where the inputs to update the state is the \texttt{layer.sample}
+attribute since the negative phase is built on estimating an expectation.  Then sampling is done at all the layers:
+rectified linear units use Gaussians, softmax layers use a categorical distribution, and logistic layers use Bernoulli
+random variables.
+
+Then the sufficient statistics computed in the postive phase are then adjusted by taking the row sums (across) samples
+and subtracting the state inferred from the negative phase via sampling.  The gradient at the layer bias term is then given by
+\begin{equation}
+\partial_t \mathbf{b} <- \partial_{t-1}\mathbf{b} - \mathbf{s}/N_{batch}
+\end{equation}
+where $\mathbf{s}$ is the vector of sufficient statistics and $\partial_{\tau}\mathbf{b}$ is the estimated gradient at
+time instant $\tau$.
+
+A similar update is then done with the edges.  The phase is then set back to the positive phase.
+
+\subsubsection{First Pass Negative Phase Initialization}
+
+In the first run of the program we need to get the \texttt{layer.sample} and \texttt{layer.state} set properly in order
+to run the negative phase since those are relied upon for the computations.
+
+\subsection{Making Predictions}
+
+The final part of the code is understanding how the error rates and evaluation occurs in the model. Basically, it involves
+just running the positive phase of PCD.  Mean-field inference is then used to get a prediction about what the state should
+be of the input data-layer nodes and then that is compared to the true data and the difference between the two is the loss.
+
+\section{Computing the Features}
+
+In order to do computations with the network what matters is the layer state for the layers that accept the input data.
+So getting the inferred posteriors for all of the data is simply a matter of loading in the input data in a sensible way.
+
+\section{Accepting Pre-trained network and training without Posterior Labels}
+
+After boot-strapping the training process to train against GMM posterior labels we then move to training.
+
+
+\bibliography{dbm.bib}
+\bibliographystyle{plain}
+
+
+\end{document}
