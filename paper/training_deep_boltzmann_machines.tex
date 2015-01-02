@@ -117,60 +117,85 @@ In summary, the contributions of this work are
 \end{enumerate}
 
 
-This model features hidden binary layers which are latent, a visible
-Gaussian layer which is visible in both training and testing, and a
-soft-max layer which is visible during training and latent during
-testing.
+%% This model features hidden binary layers which are latent, a visible
+%% Gaussian layer which is visible in both training and testing, and a
+%% soft-max layer which is visible during training and latent during
+%% testing.
 
-  Standard related
-to the deep belief network (DBN) developed by Hinton which has
-directed connections and can also be trained with unlabeled data.
-There are many differences between the DBM and the DBN but chief among
-them is that the DBM features top-down feedback cycles between layers
-whereas the DBN is a feedforward network.  Both the DBM and DBN were originally designed to work
-with binary data but have been extended to arbitrary exponential family distributions.  This tutorial
-is meant to expound on inference algorithms for multilayer Boltzmann machines composed with 
-exponential family generalizations which has been scattered through different areas of the literature
-and has not been given detailed derivations.
+%%   Standard related
+%% to the deep belief network (DBN) developed by Hinton which has
+%% directed connections and can also be trained with unlabeled data.
+%% There are many differences between the DBM and the DBN but chief among
+%% them is that the DBM features top-down feedback cycles between layers
+%% whereas the DBN is a feedforward network.  Both the DBM and DBN were originally designed to work
+%% with binary data but have been extended to arbitrary exponential family distributions.  This tutorial
+%% is meant to expound on inference algorithms for multilayer Boltzmann machines composed with 
+%% exponential family generalizations which has been scattered through different areas of the literature
+%% and has not been given detailed derivations.
 
-This tutorial also gives the details for multiprediction style algorithms that enable the incorporation
-of backpropagation into DBM algorithms. We also consider an extension which uses recent ideas for training
-inspired by belief propagation.  The basic theory presented in this work is not new and the contribution of this
-tutorial is to hopefully more clearly explain the results that have been presented before. This tutorial is also meant
-to provide the basis for understanding the author's implementation of deepnet code that is used for performing the
-speech processing.
+%% This tutorial also gives the details for multiprediction style algorithms that enable the incorporation
+%% of backpropagation into DBM algorithms. We also consider an extension which uses recent ideas for training
+%% inspired by belief propagation.  The basic theory presented in this work is not new and the contribution of this
+%% tutorial is to hopefully more clearly explain the results that have been presented before. This tutorial is also meant
+%% to provide the basis for understanding the author's implementation of deepnet code that is used for performing the
+%% speech processing.
 
-This tutorial writeup is meant to provide a nearly comprehensive
-specification for a DBM programmatic implementation.  Accompanying this writeup is code representing
-all of the contained ideas. We focus on the
-multimodal DBM introduced in (Srivistava 2014) which has the advantage
-that we may train it with or without labels using essentially the same
-algorithms. The plan is to introduce the model specification and the
-data specification for input into the model.  We will then discuss the
-inference algorithm: i.e. given a trained network and some input data
-describe how to infer the labels or network hidden states for that
-data.  Then we will consider training algorithms.  We address
-persistant contrastive divergence as well as multiprediction training.
+%% This tutorial writeup is meant to provide a nearly comprehensive
+%% specification for a DBM programmatic implementation.  Accompanying this writeup is code representing
+%% all of the contained ideas. We focus on the
+%% multimodal DBM introduced in (Srivistava 2014) which has the advantage
+%% that we may train it with or without labels using essentially the same
+%% algorithms. The plan is to introduce the model specification and the
+%% data specification for input into the model.  We will then discuss the
+%% inference algorithm: i.e. given a trained network and some input data
+%% describe how to infer the labels or network hidden states for that
+%% data.  Then we will consider training algorithms.  We address
+%% persistant contrastive divergence as well as multiprediction training.
 
-The main inspiration for this article is the classic tutorial of Rabiner for Hidden Markov Models.  We intend to extend this tutorial to
-include sequence models as that is the ultimate intention of this work, but we have some room to go before getting there.
+%% The main inspiration for this article is the classic tutorial of Rabiner for Hidden Markov Models.  We intend to extend this tutorial to
+%% include sequence models as that is the ultimate intention of this work, but we have some room to go before getting there.
 
 \section{Notation}
 
-We introduce some notation to simplify the presentation. Let $[k]=\{0,1,\ldots,k-1\}$.  When indexing elements of a set we will
-typically use the set $[k]$ or zero-based indexing to keep with common programming conventions.
-We use bold-face to denote vectors
-where $\mathbf{v}\in\mathbb{R}^D$ has $D$ entries each belonging to the real field.  To refer to components of a vector 
-we drop the boldface and use a subscript so that $v_j$ is the $j$th entry of $\mathbf{v}$.  We will index different vectors
-with superscripts usually so that $\mathbf{v}^0$ and $\mathbf{v}^1$ refer to separate vectors. To refer to matrices we use typeface:
-e.g. $\mathtt{A}$. 
+We introduce some notation to simplify the presentation. Let
+$[k]=\{0,1,\ldots,k-1\}$.  When indexing elements of a set we will
+typically use the set $[k]$ or zero-based indexing to keep with common
+programming conventions.  We use bold-face to denote vectors where
+$\mathbf{v}\in\mathbb{R}^D$ has $D$ entries each belonging to the real
+field.  To refer to components of a vector we drop the boldface and
+use a subscript so that $v_j$ is the $j$th entry of $\mathbf{v}$.  We
+will index different vectors with superscripts usually so that
+$\mathbf{v}^0$ and $\mathbf{v}^1$ refer to separate vectors. To refer
+to matrices we use typeface: e.g. $\mathtt{A}$. Visible layers will
+usually be denoted with $\mathbf{v}^{(j)}$ and hidden layers will
+usually be denoted as $\mathbf{h}^{(j)}$, and a general layer (not
+specified as observed or latent) will be written $\mathbf{u}^{(j)}$.
+We refer to a sequence of multiple layers as $\overline{\mathbf{u}}$.
+The sufficient statistics or feature maps will be denoted as $\boldsymbol{\phi}^{(j)}$
+for layer $\mathbf{u}^{(j)}$.
 
-The energy functions in DBMs make heavy use of inner products but we will follow the standard convention of writing inner products
-using summations.  This allows us to be very careful and particular about what is being summed over.
+
+The energy functions in DBMs make heavy use of inner products but we
+will follow the standard convention of writing inner products using
+summations.  This allows us to be very careful and particular about
+what is being summed over.
 
 \section{Formal Setting}
 
-The DBM in the fully observed setting is an exponential family model
+The DBM in the fully observed setting (i.e. we do not marginalize over the hidden layers) is an exponential family model with a special
+layer-based structure.  An exponential family model, in general, is expressed in terms of its sufficient statistics (feature maps)
+and the range of possible parameters.  The likelihood function may be written as 
+\begin{equation}
+\mathbb{P}(\overline{\mathbf{u}}) = \frac{h(\overline{\mathbf{u}})}{\mathcal{Z}(\overline{\boldsymbol{\psi}})}\exp( \overline{\phi}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}})
+\end{equation}
+where $h(\overline{\mathbf{u}})$ is a fixed function of the inputs denoting their range: we use this to enforce the binary layers to be
+binary, soft-max layers to be one-hot vectors, etc. and we will omit it for the rest of the presentation and simply assume ranges
+on the variables.
+  $\mathcal{Z}$ is the partition function and is equal to 
+\begin{equation}
+\mathcal{Z}(\overline{\boldsymbol{\psi}}) = \exp( \overline{\phi}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}}).
+\end{equation}
+
 
 
 The DBM is a model composed of layers or vectors of variables:
