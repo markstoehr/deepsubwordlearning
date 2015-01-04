@@ -81,7 +81,8 @@ and feed-back connections. The DBM is perhaps one of the most complicated
 entities studied in present machine learning research.  Previous work on the DBM has focused primarily on the
 range of domains to which the DBM may be applied and the impressive performance that can be obtained using a DBM
 as a tool for pattern recognition.  In this tutorial we describe the DBM as a computational entity and give
-a perspective on programming with DBMs.  Many of the ideas discussed herein should be applicable to other models as well.
+a perspective on programming with DBMs and to justify the computational implementation
+mathematically.  Many of the ideas discussed herein should be applicable to other models as well.
 
 DBMs are specified by a collection of variables and an
 exponential-family likelihood function.  Since DBMs are in the
@@ -89,7 +90,7 @@ exponential family they have a real-valued parameter vector (which are
 estimated during training) and a family of fixed feature functions
 called the sufficient statistics.  DBMs also belong to the family of
 deep learning methods: the variables may be partitioned into mutually
-exclusive groups called {\it layers} that roughly correspond to the
+exclusive groups called {\it layers} that analagously correspond to the
 layers in a multilayer perceptron. Even with this grouping and
 understanding the structure inference (i.e. predicting the label or
 the hidden state of the DBM for given input data) and training (estimating the parameters) are both intractable.
@@ -172,20 +173,50 @@ usually be denoted as $\mathbf{h}^{(j)}$, and a general layer (not
 specified as observed or latent) will be written $\mathbf{u}^{(j)}$.
 We refer to a sequence of multiple layers as $\overline{\mathbf{u}}$.
 The sufficient statistics or feature maps will be denoted as $\boldsymbol{\phi}^{(j)}$
-for layer $\mathbf{u}^{(j)}$.
+for layer $\mathbf{u}^{(j)}$.  In general we will denote single coordinate functions of the
+feature map using greek letters such as $\phi^{(j)}_i$ and we use bold greek letters
+$\boldsymbol{\phi}^{(j)}$ for
+functions that map to multiple coordinates of the feature vector. Similar to the rule
+for sequences of layers the complete feature vector over all layers is denoted $\overline{\boldsymbol{\phi}}$.
 
 
 The energy functions in DBMs make heavy use of inner products but we
-will follow the standard convention of writing inner products using
+will follow the standard convention in the Boltzmann Machine (BM)
+ literature of writing inner products using
 summations.  This allows us to be very careful and particular about
 what is being summed over.
 
-\section{Formal Setting}
+\section{Model Specification}
 
-The DBM in the fully observed setting (i.e. we do not marginalize over the hidden layers) is an exponential family model with a special
+Our principal conern of this paper is the concrete implementations of DBMs which we describe using properties of a particular
+implementation of a DBM in Python and CUDA which ultimately is a collection of typed bits residing on physical hardware.  
+Properties of concrete object are, as discussed in \cite[Chapter~1]{stepanov2009elements},
+are correspondences
+to abstract entities which in our case are the DBM's corresponding exponential family statistical
+model description, graphical model formalism, and deep neural network characterization. The relationship between the DBM and its abstract
+formulations are useful to us because 
+they may be used to derive and mathematically justify the learning procedures we use.  The abstract 
+specification is by nature hardware-independent and is specified in terms of mathematical objects and allows us to make use of 
+statistical theory. Such descriptions have been worked out largely by other authors and our contribution is to formulate it
+in such a way that it will be easy to show the correspondences between the abstract and the concrete.  In particular, we wish to show
+how the abstract DBM theory imposes specific syntactic and semantic constraints upon DBM implementations. 
+
+This section deals with the problem of mathematical specification of the DBM energy function which is the core of the model
+from which all other properties are derived.  The energy function uses the DBM model parameters and variables to compute an un-normalized
+likelihood.  In our abstract discussion we will give a taxonomy of the model parameters and variables with an eye towards
+describing their precise types.  Doing so requires that we also draw a correspondence between the DBM as a statistical model
+and the DBM as a deep learning model.
+
+The following subsection describes the programmatic implementation of the constructor, assignment, destructor, initialization, equality,
+and underlying type.  These will establish our DBM type as { \it regular} in the sense of \cite[Chapter~1]{stepanov2009elements}.
+
+\subsection{Abstract Model}
+
+A DBM is a statistical model so we may specify by its likelihood function. Equivalently, it may be viewed as a deep learning
+method which is specified by layers and connections between layers.  We will address the statistical model viewpoint first  in the fully observed setting (i.e. we do not marginalize over the hidden layers) is an exponential family model with a special
 layer-based structure.  An exponential family model, in general, is expressed in terms of its sufficient statistics (feature maps)
 and the range of possible parameters.  The likelihood function may be written as 
-\begin{equation}
+\begin{equation}\label{eq:exponential-likelihood-function}
 \mathbb{P}(\overline{\mathbf{u}}) = \frac{h(\overline{\mathbf{u}})}{\mathcal{Z}(\overline{\boldsymbol{\psi}})}\exp( \overline{\phi}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}})
 \end{equation}
 where $h(\overline{\mathbf{u}})$ is a fixed function of the inputs denoting their range: we use this to enforce the binary layers to be
@@ -193,52 +224,140 @@ binary, soft-max layers to be one-hot vectors, etc. and we will omit it for the 
 on the variables.
   $\mathcal{Z}$ is the partition function and is equal to 
 \begin{equation}
-\mathcal{Z}(\overline{\boldsymbol{\psi}}) = \exp( \overline{\phi}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}}).
+\mathcal{Z}(\overline{\boldsymbol{\psi}}) = \exp( \overline{\boldsymbol{\phi}}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}}).
 \end{equation}
 
-
-
-The DBM is a model composed of layers or vectors of variables:
+The sufficient statistics or feature maps is specified in terms of
+mutually disjoint groups of variables called the {\it layers} of the
+DBM. Supposing there are a total of $J$ layers we specify this complete set as
 \begin{equation}
-\mathcal{L}=\left\{\mathbf{u}^{(0)},\mathbf{u}^{(1)},\ldots,\mathbf{u}^{(N)}\right\}.
+\mathcal{L}=\left\{\mathbf{u}^{(0)},\mathbf{u}^{(1)},\ldots,\mathbf{u}^{(J-1)}\right\}
 \end{equation}
-Each layer $\mathbf{u}^{(j)}$ belongs to a set $\mathbb{F}^{D_j}$ of some dimension $j$ and possesses
-a vector of parameters $\boldsymbol{\theta}^{(j)}$ which has dimensions $D_j$ and are often real-valued
-so $\boldsymbol{\theta}^{(j)}\in\mathbb{R}^{D_j}$.  The hidden layers are binary Boltzmann machines
-and the visible layers have exponential family conditional distributions.  The vector $\tilde{\mathbf{u}}^{(j)}$ will
-denote the vector of sufficient statistics for that layer and we treat those
-statistics as the observations.  In particular, the raw data may be a vector $\mathbf{u}^{(j,obs)}$ if $\mathbf{u}^{(j)}$
-is a visible layer and for each component $d$ we have
-$u^{(j)}_d=\phi_d^{(j)}(\tilde{u}^{(j)})$ for a fixed feature map $\phi_d^{(j)}$.
+so that if $\overline{\mathbf{u}}$ is the complete vector of variables then it is the concatenation
+of the layers in $\mathcal{L}$.  The {\it state} of a layer $l$ is the vector of variables
+$\mathbf{u}^{(l)}$ hence the states of visible layers correspond to network inputs and outputs whereas
+the states of hidden layers are the values of latent variables.  We denote the number of variables in layer $j$ by 
+$F_j$. The layers considered in this writeup
+are vectors of binary variables (for the hidden layers) which will be written $\mathbf{h}^{(j)}$, 
+a vector with a single entry that is a categorical random variable (for a soft-max output layer) which are denoted by $\mathbf{c}^{(j)}$,
+and a vector of real-valued variables (for a Gaussian input layer) which are written $\mathbf{v}^{(j)}$.
 
-DBMs also feature a layer-graph which specifies which layers are
-connected to which other layers.  These connections which we call
-layer edges are specified by a set $\mathcal{E}$.  For each edge
-$E\in\mathcal{E}$ is denoted by a pair of indices indicating the
-layers in $\mathcal{L}$ that are connected, e.g. $\mathbf{u}^{(i)}$
-and $\mathbf{u}^{(j)}$, as well as a parameter matrix,
-e.g. $\mathtt{W}\in \mathbb{R}^{F_i\times F_j}$.  Note that the
-dimension of the edge parameter matrix is the product of the
-dimensions of the connected layers which allows us to write the energy function as due to the structure of the energy
-function defining the Gibbs distribution of the DBM.
+$\overline{\boldsymbol{\phi}}(\overline{\mathbf{u}})$ denotes the complete set of sufficient statistics
+for the complete vector of variables.  The function $\overline{\boldsymbol{\phi}}$ is the concatenation of 
+layer bias functions which operate on single layers and layer connection functions which operate on pairs of layers.
+The layer bias functions all belong to a set
+\begin{equation}
+\mathcal{B} = \left\{\boldsymbol{\phi}^{(0)},\ldots,\boldsymbol{\phi}^{(J-1)}\right\}
+\end{equation}
+where $\boldsymbol{\phi}^{(j)}$ is applied on to the specific variables in its layer $\mathbf{u}^{(j)}$ for
+$0\leq j<J$. Each layer bias function $\boldsymbol{\phi}^{(j)}$ is homogeneous: i.e. it concatenates the outputs of a single vector
+function $\boldsymbol{\varphi}^{(j)}$
+applied to each individual variable $u^{(j)}_d$ of the layer:
+\begin{equation}
+\boldsymbol{\phi}^{(j)}\left(\begin{bmatrix}u^{(j)}_0 \\ u^{(j)}_1 \\ \vdots \\ u^{(j)}_{F_j}\end{bmatrix}\right) = 
+\begin{bmatrix} \boldsymbol{\varphi}^{(j)}(u^{(j)}_0) \\ \boldsymbol{\varphi}^{(j)}(u^{(j)}_1) \\ \vdots \\ \boldsymbol{\varphi}^{(j)}(u^{(j)}_{F_j})\end{bmatrix}.
+\end{equation}  The codomain dimension of $\boldsymbol{\phi}^{(j)}$ is denoted by $D_j$.
+The particular sufficient statistics featured in the bias layer functions depends on the type of layer.  For binary layers
+the sufficient statistics are the coordinates themselves so $\boldsymbol{\phi}^{(j)}(h^{(j)}_d)=h^{(j)}_d\in \{0,1\}^{F_j}=\{0,1\}^{D_j}$;
+for soft-max layers the output is a one-hot vector indicating the categorical value:
+\begin{equation}
+\boldsymbol{\phi}^{(j)}(c^{(j)})=\mathbf{e}_{c^{(j)}}\in \{0,1\}^{D_j}
+\end{equation} 
+where $\mathbf{e}_c$ is the standard unit vector where the $c$th coordinate is one, the rest are zeros, and the dimension,
+$D_j$, is equal to the number of possible categories in the soft-max output;
+and, for Gaussian layers the output is the coordinate
+and its square: 
+\begin{equation}
+\boldsymbol{\varphi}^{(j)}(v^{(j)}_i)=\begin{bmatrix} v^{(j)}_i \\ (v^{(j)}_i)^2  \end{bmatrix}
+\end{equation}
+so that $D_j=2F_j$ and
+\begin{equation}
+\boldsymbol{\phi}^{(j)}(v^{(j)}) = \begin{bmatrix} \boldsymbol{\varphi}^{(j)}(v^{(j)}_0) \\ \boldsymbol{\varphi}^{(j)}(v^{(j)}_1) \\ \cdots \\ \boldsymbol{\varphi}^{(j)}(v^{(j)}_{F_j}) \end{bmatrix}.
+\end{equation}
 
-Having specified the layers and their edges the energy function is written
+
+
+The layer bias functions operate on a single variable in a single layer wheras the layer connection feature maps operate on two coordinates
+in two different layers.  We denote the set of layer connection functions by
 \begin{equation}
-E(\mathbf{u}; \boldsymbol{\theta},W)= -\sum_{n=1}^N (\boldsymbol{\theta}^{(n)})^\top\tilde{\mathbf{u}}^{(n)} 
-- \sum_{(i,j)\in\mathcal{E}} (\mathbf{u}^{(i)})^\top W^{(i,j)}\mathbf{u}^{(j)}.
+\mathcal{C} = \left\{ \boldsymbol{\phi}^{\{l,j\}} \mid \{l,j\} \in\mathcal{E}\right\}
 \end{equation}
-The likelihood for a given configuration of the variables is
+where $\mathcal{E}\subset { [J] \choose 2 }$ is the set of layer edges denoting the connection structure between layers.  In the
+context of general multimodal DBMs the $\mathcal{E}$ edges describe an undirected tree graph where visible layers are leaves (although
+not all leaves need to be visible).  Each layer connection function or layer edge feature map $\boldsymbol{\phi}^{\{l,j\}}$ is a complete
+layer partite function which computes a tensor product between two layers:
 \begin{equation}
-\mathbb{P}(\mathbf{u}; \boldsymbol{\theta},W) = \exp(-E(\mathbf{u};\boldsymbol{\theta},W))/\mathcal{Z}(\boldsymbol{\theta},W)
+\boldsymbol{\phi}^{\{l,j\}}(\mathbf{u}^{(l)},\mathbf{u}^{(j)}) = \begin{bmatrix} u^{(l)}_i u^{(j)}_d \end{bmatrix}_{0\leq i < F_l,0\leq d < F_j}.
 \end{equation}
-where 
+These feature maps are the same for binary layers, soft-max layers,
+and Gaussian layers.  Observe that these
+connection functions are complete, undirected layer-partite functions
+that is they are binary, homogeneous, symmetric, and operate only
+across layers rather than within a single layer.
+
+\subsubsection{Parameterization of the DBM}
+
+The parameter vector $\overline{\boldsymbol{\psi}}$ is a vector of
+real-valued parameters of the same dimension as
+$\overline{\mathbf{u}}$.  For each layer feature map (for single
+layers or layer connections) $\boldsymbol{\phi}$ with codomain
+dimension $D_j$ we have a parameter vectors $\boldsymbol{\psi}$ of
+dimension $D_j$ which are the weights in the likelihood function from
+\autoref{eq:exponential-likelihood-function}.  The energy function for the distribution can be expanded as follows:
 \begin{equation}
-\mathcal{Z}(\boldsymbol{\theta},W)=\sum_{\mathbf{u}} \exp(-E(\mathbf{u};\boldsymbol{\theta},W))
+\overline{\boldsymbol{\phi}}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}} = \sum_{j=0}^{J-1} \boldsymbol{\phi}^{(j)}(\mathbf{u}^{(j)})^\top \boldsymbol{\psi}^{(j)} + \sum_{\{l,k\}\in\mathcal{E}} \boldsymbol{\phi}^{\{l,k\}}(\mathbf{u}^{\{l,k\}})^\top \boldsymbol{\psi}^{\{l,k\}}.
 \end{equation}
-is the partition function which normalizes the distribution.
-The edge structure of a DBM is constrained to be an undirected tree.  The visible layers are always at leaf nodes
-of the DBM layer tree.  By convention we call the visible layers the {\it bottom layers} and the height of a given
-layer is the distance to the closest visible layer which is unique and easy to compute over a tree.
+Note that in the Boltzmann Machine literature the inner product $\boldsymbol{\phi}^{\{l,k\}}(\mathbf{u}^{\{l,k\}})^\top \boldsymbol{\psi}^{\{l,k\}}$
+is usually written as a bilinear form
+\begin{equation}
+(\mathbf{u}^{(l)})^\top \mathtt{W}^{(l,k)} \mathbf{u}^{(k)}
+\end{equation}
+where $\mathtt{W}^{\{l,k\}}$ is a matrix with the same entries as $\boldsymbol{\phi}^{\{l,k\}}$. The domain of
+layer edge parameters $\mathtt{W}^{\{l,k\}}$ is the set of real matrices $\mathbb{R}^{F_l\times F_k}$.  
+
+The parameter domains for the
+layer bias parameters, however, depend on the layer type.  Binary layer bias parameter vector $\boldsymbol{\psi}^{(j)}\in\mathbb{R}^{F_j}$
+are unconstrained real vectors.  Gaussian layers have a more constrained parameterization and by convention their parameters
+are written to be suggestive of the Gaussian distribution.  The Gaussian layer bias feature map for layer $j$ 
+concatenates the input variable values
+$\mathbf{v}^{(j)}$ with a vector of their element-wise squared values $(\mathbf{v}^{(j)})^2$: we call the former the linear features
+and the latter the quadratic features.  The parameters in $\boldsymbol{\psi}^{(j)}$ for the quadratic features are constrained to be positive
+in $\mathbb{R}^{F_j}_{>0}$ and usually we write them as twice the elementwise square inverse of a vector $\boldsymbol{\sigma}^{(j)}$ so that
+$\psi^{(j,quadratic)}_d = 2(\sigma^{(j)}_d)^{-2}$. This convention is adopted so that the square of the diagonal matrix $\diag\boldsymbol{\sigma}^{(j)}$ is the covariance of the Gaussian layer variables conditioned on its parent hidden layer. Keeping with the Gaussian conventions we write
+the linear parameter vector as $\psi^{(j,linear)} = \mathbf{b}^{(j)}/(2\sigma^{(j)})$ where the division is taken element-wise and $\mathbf{b}^{(j)}\in\mathbb{R}^{F_j}$.  A Gaussian visible layer $\mathbf{v}$ with its parent binary hidden layer $\mathbf{h}$ (conditioned on all other layers) has
+an energy function:
+\begin{equation}
+  \sum_{i=0}^{F_j-1} \frac{(v_i - b_i)^2}{2\sigma_i^2} - \sum_{i=0}^{F-1}\sum_{d=0}^{F'-1} \frac{v_i}{\sigma_i}\mathtt{W}_{id}h_d - \sum_{d=0}^{F'-1} a_d h_d
+\end{equation}
+where $F$ is the dimension of the Gaussian layer and $F'$ is the dimension of the parent binary hidden layer. Note that we have also included
+the standard deviation vector $\boldsymbol{\sigma}$ in the parameterization of the pairwise connection matrix $\mathtt{W}$.
+
+Soft-max layers or categorical layers also have a constrained parameterization.  If layer $j$ is a soft-max layer then the observed variable
+is categorical and may be written $c^{(j)}\in [D_j]$.  The sufficient statistics are a one-hot vector (i.e. a member of the standard coordinate
+basis) so that entry $c^{(j)}$ of $\boldsymbol{\phi}^{(j)}(c^{(j)})$ is one and all other entries are zero.  The parameter vector $\boldsymbol{\psi}^{(j)}\in \Delta_{D_j-1}$ is a categorical distribution over the $D_j$ categories so the entries are all positive and sum to one.  The energy
+function for a categorical visible layer $c$ and a binary hidden layer $\mathbf{h}$ (conditioned on all other layers) may be written
+\begin{align}
+- \sum_{i=0}^{D-1}\sum_{k=0}^{F-1}\mathtt{W}_{i,k} \phi(c)_i h_k& - \sum_{i=0}^{D-1} b_i \phi(c)_i  - \sum_{k=0}^{F-1} a_k h_k \notag\\
+=& - \sum_{k=0}^{F-1} W_{c,k}h_k - b_c - \sum_{k=0}^{F-1} a_k h_k
+\end{align}
+since $\phi(c)$ behaves like an indicator vector, and we parameterize the energy function with $\mathtt{W}$, $\mathbf{a}$, and $\mathbf{b}$.
+
+
+\subsection{Programmatic Model}
+
+Our reference implementation is based on \cite{srivastava2014deepnet} which offers a Python and CUDA-based implementation which we
+henceforth refer to as \texttt{deepnet}. \texttt{deepnet} is written in Python and uses two sorts of objects to represent DBMs, the first is
+an interface derived from Google's protocol buffers that is primarily used for serialization and, hence, for IO of a DBM specification 
+and parameter set (e.g. saving and loading a model).  The second object is a custom object \texttt{deepnet.dbm.DBM} which is
+inherited from a \texttt{deepnet.neuralnet.NeuralNet} object. Our discussion of the model will be using the framework provided in
+\cite{stepanov2009elements} for discussing concepts which define the abstract properties of object types. 
+
+
+
+\section{Formal Model Procedures}
+
+The model specified by the previous
+
 
 
 
