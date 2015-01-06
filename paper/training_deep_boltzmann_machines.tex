@@ -77,32 +77,58 @@ and other models that I am working with in my current research project.
 The Deep Boltzmann Machine (DBM) is an undirected graphical model that
 can be used to perform unsupervised deep learning. It is unique among deep learning approaches
 because it is a statistical model, can incorporate multiple modalities, and it incorporates both feed-forward
-and feed-back connections. The DBM is perhaps one of the most complicated
-entities studied in present machine learning research.  Previous work on the DBM has focused primarily on the
-range of domains to which the DBM may be applied and the impressive performance that can be obtained using a DBM
-as a tool for pattern recognition.  In this tutorial we describe the DBM as a computational entity and give
-a perspective on programming with DBMs and to justify the computational implementation
-mathematically.  Many of the ideas discussed herein should be applicable to other models as well.
+and feed-back connections. Our principal conern of this paper is the concrete implementations of DBMs which we describe using properties of a particular
+implementation of a DBM in Python and CUDA which ultimately is a collection of typed bits residing on physical hardware.  
+Properties of concrete object are, as discussed in \cite[Chapter~1]{stepanov2009elements},
+are correspondences
+to abstract entities which in our case are the DBM's corresponding exponential family statistical
+model description, graphical model formalism, and deep neural network characterization. The relationship between the DBM and its abstract
+formulations are useful to us because 
+they may be used to derive and mathematically justify the learning procedures we use.  The abstract 
+specification is by nature hardware-independent and is specified in terms of mathematical objects and allows us to make use of 
+statistical theory. Such descriptions have been worked out largely by other authors and our contribution is to formulate it
+in such a way that it will be easy to show the correspondences between the abstract and the concrete.  In particular, we wish to show
+how the abstract DBM theory imposes specific syntactic and semantic constraints upon DBM implementations. 
 
-DBMs are specified by a collection of variables and an
-exponential-family likelihood function.  Since DBMs are in the
-exponential family they have a real-valued parameter vector (which are
-estimated during training) and a family of fixed feature functions
-called the sufficient statistics.  DBMs also belong to the family of
-deep learning methods: the variables may be partitioned into mutually
-exclusive groups called {\it layers} that analagously correspond to the
-layers in a multilayer perceptron. Even with this grouping and
-understanding the structure inference (i.e. predicting the label or
-the hidden state of the DBM for given input data) and training (estimating the parameters) are both intractable.
+A DBM or other learning method may be viewed as a compiler for data.
+We mean this in the sense that it can produce machine code from data.
+The machine code in question is the bit-representation of the DBM
+state after using the learning procedures available to the DBM with
+the data.  The requirements on a learning algorithm, and, in
+particular, a deep learning algorithm are given in terms of learning
+and inferential procedures. These are:
+\begin{enumerate}
+\item inference of latent variables given partially
+observed data 
+\item construction of feature functions
+\item estimation of model parameters to improve the inferential
+  procedures.
+\end{enumerate}  
+We will describe the abstract properties satisfied by any DBM-based
+procedure achieving those three goals. 
 
-Approximate inference is necessary and the mean-field approximation gives rise to an interesting inference algorithm
+Our approach to the three problems is based on approximating maximum
+likelihood and {\it maximum a posteriori} (MAP) assignment.  To
+develop our approximations we need to specify a likelihood function
+for the DBM.  DBMs are exponential family statistical models with a
+real-valued parameter vector (estimated during training) and a family
+of fixed feature functions called the sufficient statistics.  DBMs
+also belong to the family of deep learning methods: the variables may
+be partitioned into mutually exclusive groups called {\it layers} that
+analagously correspond to the layers in a multilayer perceptron. Even
+with this grouping and understanding the structure inference
+(i.e. predicting the label or the hidden state of the DBM for given
+input data) and training (estimating the parameters) are both
+intractable.  We will show how these two characterizations of the DBM allow us to specify the likelihood.
+
+Approximate MAP inference is necessary and the mean-field approximation gives rise to an interesting inference algorithm
 which may be interpreted as a recurrent neural network.  The recurrence is over hidden layers and features a natural
 bidirectionality.  Other papers have sketched out how such a recurrent neural network may be trained using discriminative
 criteria (called multiprediction DBMs), and in this work we describe more of the algorithmic details and their
 mathematical derivation.  Building on this understanding we describe a novel bi-direction long term short term memory
 DBM whose mean-field approximation gives rise to an alternative LSTM.
 
-Additionally, the DBM may be trained in an unsupervised manner and we describe, programmatically, a persistant contrastive
+We approximate maximum likelihood estimation of the parameters using a persistant contrastive
 divergence (PCD) algorithm. Due to the successes obtained by deep learning in real-valued signal
 tasks such as speech recognition and machine vision this tutorial will
 develop a DBM that can perform classification on real-valued data and we will describe PCD specifically suited for that
@@ -118,45 +144,8 @@ In summary, the contributions of this work are
 \end{enumerate}
 
 
-%% This model features hidden binary layers which are latent, a visible
-%% Gaussian layer which is visible in both training and testing, and a
-%% soft-max layer which is visible during training and latent during
-%% testing.
 
-%%   Standard related
-%% to the deep belief network (DBN) developed by Hinton which has
-%% directed connections and can also be trained with unlabeled data.
-%% There are many differences between the DBM and the DBN but chief among
-%% them is that the DBM features top-down feedback cycles between layers
-%% whereas the DBN is a feedforward network.  Both the DBM and DBN were originally designed to work
-%% with binary data but have been extended to arbitrary exponential family distributions.  This tutorial
-%% is meant to expound on inference algorithms for multilayer Boltzmann machines composed with 
-%% exponential family generalizations which has been scattered through different areas of the literature
-%% and has not been given detailed derivations.
-
-%% This tutorial also gives the details for multiprediction style algorithms that enable the incorporation
-%% of backpropagation into DBM algorithms. We also consider an extension which uses recent ideas for training
-%% inspired by belief propagation.  The basic theory presented in this work is not new and the contribution of this
-%% tutorial is to hopefully more clearly explain the results that have been presented before. This tutorial is also meant
-%% to provide the basis for understanding the author's implementation of deepnet code that is used for performing the
-%% speech processing.
-
-%% This tutorial writeup is meant to provide a nearly comprehensive
-%% specification for a DBM programmatic implementation.  Accompanying this writeup is code representing
-%% all of the contained ideas. We focus on the
-%% multimodal DBM introduced in (Srivistava 2014) which has the advantage
-%% that we may train it with or without labels using essentially the same
-%% algorithms. The plan is to introduce the model specification and the
-%% data specification for input into the model.  We will then discuss the
-%% inference algorithm: i.e. given a trained network and some input data
-%% describe how to infer the labels or network hidden states for that
-%% data.  Then we will consider training algorithms.  We address
-%% persistant contrastive divergence as well as multiprediction training.
-
-%% The main inspiration for this article is the classic tutorial of Rabiner for Hidden Markov Models.  We intend to extend this tutorial to
-%% include sequence models as that is the ultimate intention of this work, but we have some room to go before getting there.
-
-\section{Notation}
+\subsection{Notation}
 
 We introduce some notation to simplify the presentation. Let
 $[k]=\{0,1,\ldots,k-1\}$.  When indexing elements of a set we will
@@ -186,48 +175,120 @@ will follow the standard convention in the Boltzmann Machine (BM)
 summations.  This allows us to be very careful and particular about
 what is being summed over.
 
+\subsection{Statistical Setting}
+
+The most fundamental object of interest is the data which are usually vectors $\mathbf{v}\in\mathbb{R}^{F_v}$ paired
+with categorical labels $c\in [D]$.  In {\it supervised learning} there is a {\it training phase } where input data
+are presented as pairs $(\mathbf{v},c)$ and during the {\it testing phase} we only have access to the real vectors
+$\mathbf{v}$ and must guess the label $c$.  The supervised learning problem is the basic inferential problem and we solve it
+with a DBM using the DBM likelihood function $\mathbb{P}(\cdot ; \overline{\boldsymbol{\psi}})$ which gives a joint likelihood
+over the vector-label pair: $\mathbb{P}(\mathbf{v},c ; \overline{\boldsymbol{\psi}})$.  We can perform inference in the testing
+phase via MAP inference:
+\begin{align}
+\hat{c} &= \max_c \mathbb{P}(c\mid \mathbf{v}; \overline{\boldsymbol{\psi}}) \notag\\
+& = \max_c \mathbb{P}(c\mid \mathbf{v}; \overline{\boldsymbol{\psi}}) \mathbb{P}(\mathbf{v}; \overline{\boldsymbol{\psi}}) \notag\\
+& = \max_c \mathbb{P}(c, \mathbf{v}; \overline{\boldsymbol{\psi}}) 
+\end{align}
+
+Maximum likelihood is a method estimate parameters in the supervised setting or the unsupervised setting (where the training data has no labels).
+For maximum likelihood we solve the problem
+\begin{equation}
+\max_{\overline{\boldsymbol{\psi}}} \sum_{n=0}^{N-1}\log \mathbb{P}(\mathbf{v}_n, c_n;\overline{\boldsymbol{\psi}})
+\end{equation}
+in the supervised setting where we have training data $\{ \mathbf{v}_n, c_n\}_{n=0}^{N-1}$.  If training is unsupervised then our estimation
+procedure solves
+\begin{equation}
+\max_{\overline{\boldsymbol{\psi}}} \sum_{n=0}^{N-1} \log \sum_{c=0}^{D-1}\mathbb{P}(\mathbf{v}_n, c;\overline{\boldsymbol{\psi}})
+\end{equation}
+where we have marginalized the distribution over the labels.
+
+The third problem that we address in this paper is feature extraction
+using a deep network.  Given a parameter estimate
+$\overline{\boldsymbol{\psi}}$ learned using a maximum likelihood
+procedure we can extract features by means of hidden variables.  In
+addition to the real-vector $\mathbf{v}$ and categorical label $c$ the
+DBM also has several sets of hidden random variables
+$\mathbf{h}^{(0)}$, $\mathbf{h}^{(1)}$, $\ldots$: each a binary
+vector. We may concatenate all these groups of binary random variables
+into a single supervector $\mathbf{h}$.  We may then rewrite the
+likelihood function for the DBM over the supervised data
+$(\mathbf{v},c)$ as
+\begin{equation}
+\sum_{\mathbf{h}}\mathbb{P}(\mathbf{v},c, \mathbf{h} ; \overline{\boldsymbol{\psi}})
+\end{equation}
+so that we marginalize over all possible settings of the hidden variables ($2^{\dim \mathbf{h}}$ states).  We may use this
+to define a conditional distribution over the hidden states given the training data:
+\begin{equation}
+\mathbb{P}(\mathbf{h}\mid \mathbf{v},c ; \overline{\boldsymbol{\psi}}) = \frac{\mathbb{P}(\mathbf{v},c, \mathbf{h} ; \overline{\boldsymbol{\psi}})}{\sum_{\mathbf{h}} \mathbb{P}(\mathbf{v},c, \mathbf{h} ; \overline{\boldsymbol{\psi}})}.
+\end{equation}
+One difficulty of using this conditional distribution is that it does not, in general, belong to the exponential family so it does not
+have a set of sufficient statistics that summarizes the statistical information in a fixed-dimensional summary.
+So, to construct the feature map we use an approximating exponential family distribution $\mathbb{Q}(\mathbf{h}; \overline{\boldsymbol{\mu}})$
+and we estimate the parameters $\overline{\boldsymbol{\mu}}$ to minimize the Kullback-Leibler divergence
+\begin{equation}
+\min_{\overline{\boldsymbol{\mu}}} D_{KL}(\mathbb{Q}(\mathbf{h}; \overline{\boldsymbol{\mu}}) \| \mathbb{P}(\mathbf{h}\mid \mathbf{v},c ; \overline{\boldsymbol{\psi}})).
+\end{equation}
+The estimated parameters $\overline{\boldsymbol{\mu}}$ provide a feature map for the training pair $(\mathbf{v},c)$ since
+the parameters compact summarize of the latent information contained in the DBM.  To see why, note that the moments of the 
+sufficient statistics can be computed via differentiating the partition function (this follows from the form of the cumulant generating function).
+
+Since we will be making use of mean-field approximations we will be
+using factorial distributions.  Given a vector of variables
+$\mathbf{u}$ of dimension $F$ a factorial distribution $\mathbb{Q}(\cdot;\overline{\boldsymbol{\mu}})$ over $\mathbf{u}$ has a log-likelihood
+\begin{equation}
+\log \mathbb{Q}(\mathbf{u};\boldsymbol{\mu}) = \sum_{i=0}^{F-1} \boldsymbol{\phi}_i(u_i)^\top \boldsymbol{\mu}_i - A_i(\boldsymbol{\mu}_i)
+\end{equation}
+where $\overline{\boldsymbol{\mu}}=(\boldsymbol{\mu}_0,\ldots,\boldsymbol{\mu}_{F-1})^\top$ is the parameter vector and
+the log-partition function $A$ may be decomposed as
+\begin{equation}
+A(\overline{\boldsymbol{\mu}}) = \sum_{i=0}^{F-1} A_i(\boldsymbol{\mu}_i).
+\end{equation}
+Observe that factorial distributions are defined entirely by their
+marginals and all variables are treated as independent.  This
+separability will be key in deriving efficient algorithms.  If
+$\mathbf{u}\in \{0,1\}^F$ the factorial distribution is the product of Bernoulli random variables model
+\begin{equation}
+\log \mathbb{Q}(\mathbf{u};\boldsymbol{\mu}) = \sum_{i=0}^{F-1} u_i\log\frac{\mu_i}{1-\mu_i} + \log(1-\mu_i)
+\end{equation}
+where each parameter $\mu_i$ is the approximate marginal for the variable $u_i$.
+
+
+
 \section{Model Specification}
 
-Our principal conern of this paper is the concrete implementations of DBMs which we describe using properties of a particular
-implementation of a DBM in Python and CUDA which ultimately is a collection of typed bits residing on physical hardware.  
-Properties of concrete object are, as discussed in \cite[Chapter~1]{stepanov2009elements},
-are correspondences
-to abstract entities which in our case are the DBM's corresponding exponential family statistical
-model description, graphical model formalism, and deep neural network characterization. The relationship between the DBM and its abstract
-formulations are useful to us because 
-they may be used to derive and mathematically justify the learning procedures we use.  The abstract 
-specification is by nature hardware-independent and is specified in terms of mathematical objects and allows us to make use of 
-statistical theory. Such descriptions have been worked out largely by other authors and our contribution is to formulate it
-in such a way that it will be easy to show the correspondences between the abstract and the concrete.  In particular, we wish to show
-how the abstract DBM theory imposes specific syntactic and semantic constraints upon DBM implementations. 
-
-This section deals with the problem of mathematical specification of the DBM energy function which is the core of the model
-from which all other properties are derived.  The energy function uses the DBM model parameters and variables to compute an un-normalized
-likelihood.  In our abstract discussion we will give a taxonomy of the model parameters and variables with an eye towards
-describing their precise types.  Doing so requires that we also draw a correspondence between the DBM as a statistical model
-and the DBM as a deep learning model.
+A specification of the DBM must include either an exact or approximate likelihood function.  Due to the intractability of properly
+normalizing the DBM likelihood function we opt to work with the energy function or the unnormalized log likelihood rather than the full log likelihood
+function. When the hidden binary variables are observed the DBM is an exponential family model so the energy function is simply an inner product between a feature map known as the sufficient statistics and the vector of DBM parameters.
+  A taxonomy of parameters and variables will be specified in terms of their mathematical domains using a conceptual basis borrowed from
+the deep learning literature.
 
 The following subsection describes the programmatic implementation of the constructor, assignment, destructor, initialization, equality,
 and underlying type.  These will establish our DBM type as { \it regular} in the sense of \cite[Chapter~1]{stepanov2009elements}.
 
 \subsection{Abstract Model}
 
-A DBM is a statistical model so we may specify by its likelihood function. Equivalently, it may be viewed as a deep learning
-method which is specified by layers and connections between layers.  We will address the statistical model viewpoint first  in the fully observed setting (i.e. we do not marginalize over the hidden layers) is an exponential family model with a special
-layer-based structure.  An exponential family model, in general, is expressed in terms of its sufficient statistics (feature maps)
-and the range of possible parameters.  The likelihood function may be written as 
+A DBM is a statistical model so we may specify by its likelihood
+function. Equivalently, it may be viewed as a deep learning method
+which is specified by layers and connections between layers.  In the
+fully observed setting (i.e. no marginalization over the hidden
+layers) the DBM is an exponential family model with a special layer-based
+structure.  An exponential family model type, in general, is expressed in
+terms of its sufficient statistics (feature maps) and the domains of
+its parameter vector.  The likelihood function may be written as
 \begin{equation}\label{eq:exponential-likelihood-function}
 \mathbb{P}(\overline{\mathbf{u}}) = \frac{h(\overline{\mathbf{u}})}{\mathcal{Z}(\overline{\boldsymbol{\psi}})}\exp( \overline{\phi}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}})
 \end{equation}
-where $h(\overline{\mathbf{u}})$ is a fixed function of the inputs denoting their range: we use this to enforce the binary layers to be
-binary, soft-max layers to be one-hot vectors, etc. and we will omit it for the rest of the presentation and simply assume ranges
-on the variables.
-  $\mathcal{Z}$ is the partition function and is equal to 
+where $h(\overline{\mathbf{u}})$ is a fixed function of the inputs
+denoting their range: we use this to enforce the binary layers to be
+binary, soft-max layers to be integers belonging to a finite set of
+categories $[D]$, etc. and we will omit it for the rest of the
+presentation and appropriately constrain the domains of the variables.
+$\mathcal{Z}$ is the partition function and is equal to
 \begin{equation}
 \mathcal{Z}(\overline{\boldsymbol{\psi}}) = \exp( \overline{\boldsymbol{\phi}}(\overline{\mathbf{u}})^\top \overline{\boldsymbol{\psi}}).
 \end{equation}
 
-The sufficient statistics or feature maps is specified in terms of
+The sufficient statistics or feature map is specified in terms of
 mutually disjoint groups of variables called the {\it layers} of the
 DBM. Supposing there are a total of $J$ layers we specify this complete set as
 \begin{equation}
@@ -274,8 +335,6 @@ so that $D_j=2F_j$ and
 \begin{equation}
 \boldsymbol{\phi}^{(j)}(v^{(j)}) = \begin{bmatrix} \boldsymbol{\varphi}^{(j)}(v^{(j)}_0) \\ \boldsymbol{\varphi}^{(j)}(v^{(j)}_1) \\ \cdots \\ \boldsymbol{\varphi}^{(j)}(v^{(j)}_{F_j}) \end{bmatrix}.
 \end{equation}
-
-
 
 The layer bias functions operate on a single variable in a single layer wheras the layer connection feature maps operate on two coordinates
 in two different layers.  We denote the set of layer connection functions by
@@ -332,11 +391,18 @@ an energy function:
 where $F$ is the dimension of the Gaussian layer and $F'$ is the dimension of the parent binary hidden layer. Note that we have also included
 the standard deviation vector $\boldsymbol{\sigma}$ in the parameterization of the pairwise connection matrix $\mathtt{W}$.
 
-Soft-max layers or categorical layers also have a constrained parameterization.  If layer $j$ is a soft-max layer then the observed variable
-is categorical and may be written $c^{(j)}\in [D_j]$.  The sufficient statistics are a one-hot vector (i.e. a member of the standard coordinate
-basis) so that entry $c^{(j)}$ of $\boldsymbol{\phi}^{(j)}(c^{(j)})$ is one and all other entries are zero.  The parameter vector $\boldsymbol{\psi}^{(j)}\in \Delta_{D_j-1}$ is a categorical distribution over the $D_j$ categories so the entries are all positive and sum to one.  The energy
-function for a categorical visible layer $c$ and a binary hidden layer $\mathbf{h}$ (conditioned on all other layers) may be written
-\begin{align}
+Soft-max layers or categorical layers also have a constrained
+parameterization.  If layer $j$ is a soft-max layer then the observed
+variable is categorical and may be written $c^{(j)}\in [D_j]$.  The
+sufficient statistics are a one-hot vector (i.e. a member of the
+standard coordinate basis) so that entry $c^{(j)}$ of
+$\boldsymbol{\phi}^{(j)}(c^{(j)})$ is one and all other entries are
+zero.  The parameter vector $\boldsymbol{\psi}^{(j)}\in
+\Delta_{D_j-1}$ is a categorical distribution over the $D_j$
+categories so the entries are all positive and sum to one.  The energy
+function for a categorical visible layer $c$ and a binary hidden layer
+$\mathbf{h}$ (conditioned on all other layers) may be written
+\begin{align}\label{eq:categorical-hidden-dbm}
 - \sum_{i=0}^{D-1}\sum_{k=0}^{F-1}\mathtt{W}_{i,k} \phi(c)_i h_k& - \sum_{i=0}^{D-1} b_i \phi(c)_i  - \sum_{k=0}^{F-1} a_k h_k \notag\\
 =& - \sum_{k=0}^{F-1} W_{c,k}h_k - b_c - \sum_{k=0}^{F-1} a_k h_k
 \end{align}
@@ -356,7 +422,221 @@ inherited from a \texttt{deepnet.neuralnet.NeuralNet} object. Our discussion of 
 
 \section{Formal Model Procedures}
 
-The model specified by the previous
+We focus on a multimodal DBM \cite{JMLR:v15:srivastava14b} with a
+Gaussian visible layer $\mathbf{v}$, a soft-max label layer $c$, and
+binary hidden layers $\overline{\mathbf{h}}$. We strive to keep our
+derivations sufficiently general that they may be applied to other
+network architectures.  We will do this by using the exponential family
+formulation of the DBM likelihood as given by \autoref{eq:exponential-likelihood-function}.
+
+With that form of the likelihood function we
+can now derive our maximum-likelihood-based procedures for inference,
+estimation, and feature-mapping.  Inference is a procedure defined for
+a given DBM.  It maps a vector observation $\mathbf{v}$ and the
+current DBM state (i.e. the parameters) to a distribution over
+categories which we call the output distribution.  The space of
+possible output distributions depends on the loss function and how the
+inference procedure is used.  In some contexts we want best guess
+inference where we constrain the output distribution to be a one-hot
+vector (e.g. for loss functions with zero-one loss).  In other
+contexts, such as in a speech recognizer, the ouput distribution is
+fed into another learning model and a continuous probability
+distribution over categories is appropriate so we use distributional inference.  We will develop the mathematical
+theory of both types.
+
+For best guess inference we approximately solve
+\begin{equation}\label{eq:best-guess-inference-program}
+\arg\max_c \sum_{\overline{\mathbf{h}}} \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v} ;\overline{\boldsymbol{\psi}})
+\end{equation}
+for observed data $\mathbf{v}$ and fixed parameters
+$\overline{\boldsymbol{\psi}}$.  Unfortunately, \autoref{eq:best-guess-inference-program}
+is intractable \cite{chandrasekaran2012complexity} so we opt for solution based on variational bounds.
+Moving to the log-domain and applying Jensen's inequality we have
+\begin{align}
+\log \sum_{\overline{\mathbf{h}}} \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}}) 
+&= \log \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\frac{\mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}})}{\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})} \notag\\
+&\geq \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\log \frac{\mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}})}{\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})}\notag\\
+&= \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\log \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}}) + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}}))
+\end{align}
+where $\mathbb{Q}$ is the factorial distribution over the hidden layers of the DBM, $\overline{\boldsymbol{\mu}}$ is the parameter vector
+for $\mathbb{Q}$, and $\mathcal{H}$ denotes the entropy.  When $\mathbb{P}=\mathbb{Q}$ the inequality is tight.  Using this bound we may
+write an approximate formulation of \autoref{eq:best-guess-inference-program} as
+\begin{equation}\label{eq:best-guess-mean-field-1}
+\max_c \max_{\overline{\boldsymbol{\mu}}\in (0,1)^{\dim \overline{\mathbf{h}}}} \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\log \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}}) + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})).
+\end{equation}
+
+We may simplify the expression in \autoref{eq:best-guess-mean-field-1} considerably using the exponential family form of the DBM.
+Observe
+\begin{align}
+\log \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}}) =& 
+\log \mathbb{P}(c,\overline{\mathbf{h}}\mid \mathbf{v};\overline{\boldsymbol{\psi}}) 
+- \log \sum_{c',\overline{\mathbf{h}}'}\mathbb{P}(c',\overline{\mathbf{h}}',\mathbf{v};\overline{\boldsymbol{\psi}})\notag\\
+=& \left(\overline{\boldsymbol{\phi}}^{(c,\overline{h})}(c,\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(c,\overline{h})} 
++ \left(\overline{\boldsymbol{\phi}}^{(v)}(\mathbf{v})\right)^\top \overline{\boldsymbol{\psi}}^{(v)} - A(\overline{\boldsymbol{\psi}})
+-\log \sum_{c',\overline{\mathbf{h}}'}\mathbb{P}(c,\overline{\mathbf{h}}',\mathbf{v};\overline{\boldsymbol{\psi}})
+\end{align}
+and observe that the only term depending on $c$ and $\overline{\mathbf{h}}$ is
+\begin{equation}
+\left(\overline{\boldsymbol{\phi}}^{(c,\overline{h})}(c,\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(c,\overline{h})}
+\end{equation}
+so solving \autoref{eq:best-guess-mean-field-1} is equivalent to solving
+\begin{equation}\label{eq:best-guess-mean-field-2}
+\max_c \max_{\overline{\boldsymbol{\mu}}\in (0,1)^{\dim \overline{\mathbf{h}}}} \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\left(\overline{\boldsymbol{\phi}}^{(c,\overline{h})}(c,\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(c,\overline{h})} + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})).
+\end{equation}
+Since input/output layers such as the categorical softmax layer are a
+leaf node within the DBM graph it has a connection to a single hidden layer so the 
+energy may be written
+\begin{equation}
+\left(\boldsymbol{\phi}^{(c)}\right)^\top \boldsymbol{\psi}^{(c)} + \left(\boldsymbol{\phi}^{(c)}\right)^\top W^{(c,h,l)} \mathbf{h}^{(l)} +   \left(\overline{\boldsymbol{\phi}}^{(\overline{h})}(\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}.
+\end{equation}
+For a fixed categorical state $c$ we write
+\begin{equation}
+\left(\overline{\boldsymbol{\phi}}^{(\overline{h})}(\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c = \left(\boldsymbol{\phi}^{(c)}\right)^\top W^{(c,h,l)} \mathbf{h}^{(l)} +   \left(\overline{\boldsymbol{\phi}}^{(\overline{h})}(\overline{\mathbf{h}})\right)^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}
+\end{equation}
+which emphasizes the limited dependence on the softmax layer state.  Using this new notation the problem is
+\begin{equation}\label{eq:best-guess-mean-field-3}
+\max_c \left(\boldsymbol{\phi}^{(c)}\right)^\top \boldsymbol{\psi}^{(c)} + \max_{\overline{\boldsymbol{\mu}}\in (0,1)^{\dim \overline{\mathbf{h}}}} \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\overline{\mathbf{h}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c
+ + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})).
+\end{equation}
+since the feature map $\overline{\boldsymbol{\phi}}^{(\overline{h})}$
+is just the identity vector function for hidden binary layers.
+
+We can simplify this expression further.
+For a given variable index $i$ in $\overline{\mathbf{h}}$ we have
+\begin{align}\label{eq:factorial-exponential-family-cross-entropy-simplification}
+\sum_{\overline{\mathbf{h}}}\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\overline{\mathbf{h}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c =&
+  \mu_i \left(\sum_{\overline{\mathbf{h}}_{-i}} \overline{\psi}^{(\overline{h})}_{c,i} + \overline{\mathbf{h}}^\top_{-i} \overline{\boldsymbol{\psi}}^{(\overline{h})}_{-i,c} \right)\notag\\
+& + (1-\mu_i) \sum_{\overline{\mathbf{h}}_{-i}} \overline{\mathbf{h}}^\top_{-i} \overline{\boldsymbol{\psi}}^{(\overline{h})}_{-i,c} \notag\\
+=& \mu_i \overline{\psi}^{(\overline{h})}_{c,i} + \sum_{\overline{\mathbf{h}}_{-i}} \overline{\mathbf{h}}^\top_{-i} \overline{\boldsymbol{\psi}}^{(\overline{h})}_{-i,c}.
+\end{align}
+Using mathematical induction and \autoref{eq:factorial-exponential-family-cross-entropy-simplification} we show
+\begin{equation}\label{eq:mean-field-energy}
+\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\overline{\mathbf{h}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c = \overline{\boldsymbol{\mu}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c
+\end{equation}
+showing that the factorial distribution acts as an approximate continuous encoding of the binary hidden state.  If $\mathcal{E}_{\overline{h}}$
+denotes the edge structure for the hidden layers then we may write the hidden layer mean-field cross entropy as
+\begin{equation}\label{eq:mean-field-cross-entropy-summation}
+\sum_{\{l,k\}\in\mathcal{E}_{\overline{h}}} -\left(\sum_{i,j} \mathtt{W}_{i,j}^{\{l,k\}}\mu^{(l)}_i\mu^{(k)}_j + \sum_{j=0}^{J-1} \sum_i b_{i}^{(j)}\mu_i^{(j)} + \sum_i b_{c,i}^{(J-1)} \mu_i^{(J-1)}\right)
+\end{equation}
+where $\mathtt{W}^{\{l,k\}}$ is the connection matrix between layers
+$l$ and $k$, $\mathbf{b}^{(j)}$ is the bias for layer $j$.  A
+subscript $c$ is included in the parameter indices to emphasize that
+these are the parameters corresponding to a particular category.
+Those weights are produced by the connection between the categorical
+layer and the connected binary layer which we denote by
+$\mathbf{h}^{(J-1)}$. Note that
+\autoref{eq:mean-field-cross-entropy-summation} is linear in the
+individual terms of $\overline{\boldsymbol{\mu}}$.
+
+We can apply a similar argument as above to understand the entropy term $\mathcal{H}(\mathbb{Q})$. Observe that
+\begin{align}
+\mathcal{H}(\mathbb{Q}(\overline{\boldsymbol{\mu}})) 
+=& - \sum_{\overline{\mathbf{h}}'}\mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\log  \mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\notag\\
+=& - \sum_{\overline{\mathbf{h}}_{-i}'} (1-\mu_i)\mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\left(\log  \mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}}) + \log (1- \mu_i)\right)\notag\\
+&- \sum_{\overline{\mathbf{h}}_{-i}'}\mu_i \mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\left(\log  \mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}}) + \log\mu_i\right)\notag\\
+&= -\sum_{\overline{\mathbf{h}}_{-i}'}\mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\log  \mathbb{Q}(\overline{\mathbf{h}}';\overline{\boldsymbol{\mu}})\notag\\
+- \mu_i\log\mu_i - (1-\mu_i)\log(1-\mu_i)
+\end{align}
+so, by induction, we get
+\begin{equation}\label{eq:mean-field-entropy}
+\mathcal{H}(\mathbb{Q}(\overline{\boldsymbol{\mu}}))  = -\sum_i \left(\mu_i\log \mu_i + (1-\mu_i)\log(1-\mu_i)\right)
+\end{equation}
+where the index $i$ ranges over all the hidden variables.  Combining \autoref{eq:mean-field-entropy} with \autoref{eq:mean-field-cross-entropy-summation}
+our optimization problem for mean-field inference (given a fixed category $c$) is
+\begin{align}\label{eq:simplified-category-mean-field-inference}
+\max_{\overline{\boldsymbol{\mu}}}-\left(\sum_{\{l,k\}\in\mathcal{E}_{\overline{h}}} \sum_{i,j} \mathtt{W}_{i,j}^{\{l,k\}}\mu^{(l)}_i\mu^{(k)}_j &+ \sum_{j=0}^{J-1} \sum_i b_{i}^{(j)}\mu_i^{(j)} + \sum_i b_{c,i}^{(J-1)} \mu_i^{(J-1)}\right)\notag\\
+& - \sum_i \left(\mu_i\log \mu_i + (1-\mu_i)\log(1-\mu_i)\right).
+\end{align}
+
+To solve \autoref{eq:simplified-category-mean-field-inference} we derive fixed-point locations for a stationary point of the objective function. 
+Defining $L(\overline{\boldsymbol{\mu}})$ to be objective function from \autoref{eq:simplified-category-mean-field-inference}
+we get the following stationarity conditions from the partial derivatives:
+\begin{align}
+0 =& \frac{\partial L(\overline{\boldsymbol{\mu}})}{\partial\mu_i^{(l)}} \notag\\
+=& - \left(\sum_{k\in \mathcal{N}_{\mathcal{E}}(j)} \sum_j \mathtt{W}_{i,j}^{\{l,k\}} \mu_j^{(k)} + b_i^{(l)} + \chi(l=J-1)b_{c,i}^{(J-1)}\right)\notag\\
+& - \log \frac{\mu_i^{(l)}}{1-\mu_i^{(l)}}
+\end{align}
+where $\mathcal{N}_{\mathcal{E}}(j)$ is the set of neighboring layers to $j$ in the graph.  We may then derive
+\begin{equation}\label{eq:mean-field-fixed-point-coordinate-equation}
+\mu_i^{(l)} = \sigma\left(-\left[\sum_{k\in \mathcal{N}_{\mathcal{E}}(j)} \sum_j \mathtt{W}_{i,j}^{\{l,k\}} \mu_j^{(k)} + b_i^{(l)} + \chi(l=J-1)b_{c,i}^{(J-1)}\right]\right)
+\end{equation}
+where $\sigma(x) = 1/(1+e^{-x})$ is the sigmoid function, i.e. the inverse of the log-odds ratio function. We update the coordinates of
+the mean-field layer state $\boldsymbol{\mu}^{(l)}$ using \autoref{eq:mean-field-fixed-point-coordinate-equation}.  We visit each layer
+of the network and update the mean-field states using the neighboring layers.
+
+We perform mean-field inference for each category separately since they will have
+distinct top-layer states.  Having solved run the equations to convergence we have $\overline{\boldsymbol{\mu}}_{*,c}$ for each category
+$c$ and best-guess inference can be performed with a simple search over a finite set where the values are given by
+\begin{equation}\label{eq:simplest-best-guess-mean-field-inference}
+\max_c \left(\boldsymbol{\phi}^{(c)}\right)^\top \boldsymbol{\psi}^{(c)} + \sum_i b_{c,i}^{(J-1)} \mu_{*,c,i}^{(J-1)}.
+\end{equation}
+
+\subsection{Category Distribution Inference}
+
+Distributional inference estimates a distribution over the softmax categories $c$ rather than inferring a single best one.  The natural
+choice in an information-theoretic sense is
+\begin{align}\label{eq:distributional-inference-variational-inequality}
+\log \mathbb{P}(c \mid v; \overline{\mathbf{\psi}}) =& \log\sum_{\overline{\mathbf{h}}}\mathbb{P}(c, \mathbf{h} \mid v; \overline{\mathbf{\psi}})\notag\\
+\geq&  \max_{\overline{\boldsymbol{\mu}}}\sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})\log \mathbb{P}(c, \mathbf{h} \mid v; \overline{\mathbf{\psi}}) + \mathcal{H}(\mathbb{Q}(\cdot;\overline{\boldsymbol{\mu}}))
+\end{align}
+using a similar variational argument as before and the optimization problem is identical to what we encountered in best-guess inference.
+The value of 
+\begin{equation}\label{eq:distributional-inference-variational-value}
+\max_{\overline{\boldsymbol{\mu}}}\sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})\log \mathbb{P}(c, \mathbf{h} \mid v; \overline{\mathbf{\psi}}) + \mathcal{H}(\mathbb{Q}(\cdot;\overline{\boldsymbol{\mu}}))
+\end{equation}
+is equal to the objective function value of \autoref{eq:simplest-best-guess-mean-field-inference} for a given category $c$ up to a constant
+factor.  Since \autoref{eq:distributional-inference-variational-value} is an approximation to a log-probability the constant factor $\eta(\mathbf{v};\overline{\boldsymbol{\psi}})$
+must ensure proper normalization to probability distribution:
+\begin{equation}\label{eq:distributional-inference-normalization-constant}
+\eta(\mathbf{v};\overline{\boldsymbol{\psi}}) = -\log\left[\sum_{c'} \exp\left(\left(\boldsymbol{\phi}^{(c)}\right)^\top \boldsymbol{\psi}^{(c)} + \sum_i b_{c,i}^{(J-1)} \mu_{*,c,i}^{(J-1)}.\right)\right].
+\end{equation}
+As a corollary to our analysis we see that best-guess inference corresponds to taking the mode of the distributional inference output.
+
+
+ Thus, the best-guess
+inference problem becomes
+\begin{equation}\label{eq:best-guess-mean-field-4}
+\max_c \left(\boldsymbol{\phi}^{(c)}\right)^\top \boldsymbol{\psi}^{(c)} + \max_{\overline{\boldsymbol{\mu}}\in (0,1)^{\dim \overline{\mathbf{h}}}} \overline{\boldsymbol{\mu}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c
+ + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})).
+\end{equation}
+
+\subsection{Fixed Point Equations}
+
+We use \autoref{eq:best-guess-mean-field-4} to derive a set of fixed point equations to infer the hidden state. For each possible value of
+$c$ we solve
+\begin{equation}
+\max_{\overline{\boldsymbol{\mu}}\in (0,1)^{\dim \overline{\mathbf{h}}}} \overline{\boldsymbol{\mu}}^\top \overline{\boldsymbol{\psi}}^{(\overline{h})}_c
+ + \mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})).
+\end{equation}
+Since
+\begin{equation}
+\mathcal{H}(\mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})) = - \
+\end{equation}
+
+
+assume a chain graph hidden layers
+$\overline{\mathbf{h}}=\left\{\mathbf{h}^{(0)},\ldots,\mathbf{h}^{(J-1)}\right\}$
+We may further simplify the expression and use
+\autoref{eq:categorical-hidden-dbm} to derive
+\begin{align}
+\sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})
+\overline{\boldsymbol{\phi}}^{(c,\overline{h})}(c,\overline{\mathbf{h}})^\top \overline{\boldsymbol{\psi}}^{(c,\overline{h})}
+=& - b_c - \sum_{\overline{\mathbf{h}}} \mathbb{Q}(\overline{\mathbf{h}};\overline{\boldsymbol{\mu}})\left[  - \sum_{k=0}^{F_0-1} W_{c,k}^{(0)}h_k^{(0)} - \sum_{k=0}^{F_0-1} a_k^{(0)} h_k^{(0)} \right. \notag\\
+&\left. 
+\qquad\qquad- \left(\sum_{j=1}^{J-1} \left(\mathbf{h}^{(j-1)}\right)^\top W^{(j-1,j)}\mathbf{h}^{(j)} + \left(\mathbf{a}^{(j)}\right)^\top \mathbf{h}^{(j)}  \right)\right]
+\end{align}
+since the category variable does not appear in the approximating factorial distribution.
+
+
+Since $\mathbbP{P}(\mathbf{v};\overline{\boldsymbol{\psi}})$ has no dependence on $\mathbb{Q}$ or $c$ we may rewrite
 
 
 
